@@ -367,12 +367,12 @@ if __name__ == "__main__":
     print(f"Using attention implementation: {model_args.attn_implementation or 'flash_attention_2'}")
     print(f"{'='*80}\n")
 
+    model_use_cache = False if training_args.gradient_checkpointing else True
     model_kwargs = dict(
         revision=model_args.model_revision,
         trust_remote_code=model_args.trust_remote_code,
         attn_implementation=model_args.attn_implementation or "flash_attention_2",
         torch_dtype=model_dtype,
-        use_cache=False if training_args.gradient_checkpointing else True,
     )
     quantization_config = get_quantization_config(model_args)
     if quantization_config is not None:
@@ -405,8 +405,13 @@ if __name__ == "__main__":
 
     train_dataset = load_opsd_dataset(script_args)
 
+    model = load_model_for_training(model_args, model_kwargs, script_args.model_loader)
+    model.config.use_cache = model_use_cache
+    if getattr(model, "generation_config", None) is not None:
+        model.generation_config.use_cache = model_use_cache
+
     trainer = OPSDTrainer(
-        model=load_model_for_training(model_args, model_kwargs, script_args.model_loader),
+        model=model,
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=None,
