@@ -105,6 +105,7 @@ bash scripts/run_opsd_qwen35_2b_5090.sh
 | `NUM_PROCESSES` | `4` | GPU/process 数量。4 卡 5090 保持 `4`。 |
 | `PER_DEVICE_BATCH_SIZE` | `1` | 每张卡的 micro-batch size。 |
 | `GRAD_ACCUM_STEPS` | `8` | 梯度累积步数。有效 batch size = `PER_DEVICE_BATCH_SIZE * GRAD_ACCUM_STEPS * NUM_PROCESSES`，默认是 `32`。 |
+| `GRADIENT_CHECKPOINTING` | `True` | 是否开启 gradient checkpointing。显存充足时可以设为 `False`，通常会更快但更吃显存。 |
 | `NUM_TRAIN_EPOCHS` | `30` | 没有设置 `MAX_STEPS` 时按 epoch 训练。你的数据量较大，建议先从 `1` 开始。 |
 | `MAX_STEPS` | 未设置 | 直接限制总训练 step，适合 smoke test 和短测试。设置后会覆盖 epoch 停止逻辑。 |
 | `SAVE_STEPS` | `25` | checkpoint 保存间隔。正式长训建议用 `500` 或更大，避免 checkpoint 太多。 |
@@ -154,6 +155,79 @@ INPUT_FIELD=prompt OUTPUT_FIELD=response bash scripts/run_opsd_qwen35_2b_5090.sh
 4. 检查 checkpoint 推理效果和磁盘占用后，再决定是否增加 epoch 或 step。
 
 你的数据有 106,919 条样本，默认有效 batch size 是 32，所以 1 epoch 大约是 3,342 个 optimizer step。
+
+## 加速调参建议
+
+当前 `accelerate_5090_zero2.yaml` 默认已经关闭 CPU optimizer offload：
+
+```yaml
+offload_optimizer_device: none
+```
+
+如果每张 32GB 的 5090 只占用约 5GB，可以按下面顺序提速。每次先跑 `MAX_STEPS=50`，确认没有 OOM、速度提升明显、loss/grad_norm 正常，再用于正式训练。
+
+第一步：增大每卡 micro-batch，同时保持有效 batch size 仍为 32。
+
+```bash
+PER_DEVICE_BATCH_SIZE=2 \
+GRAD_ACCUM_STEPS=4 \
+MAX_STEPS=50 \
+SAVE_STEPS=50 \
+LOGGING_STEPS=5 \
+RUN_CONFIG=qwen35_2b_opsd_lora_bs2_ga4_test \
+OPSD_DATASET=/DATA_A/data/hyh/Qwen3.5/qwen3.5_segment_summary_2B_0309/train/train_0115_whole.jsonl \
+MODEL_DIR=/DATA_A/models/Qwen3.5-2B \
+OUTPUT_DIR=/DATA_B/hyh/opsd_outputs \
+bash scripts/run_opsd_qwen35_2b_5090.sh
+```
+
+第二步：如果显存仍然充足，继续提高 micro-batch。
+
+```bash
+PER_DEVICE_BATCH_SIZE=4 \
+GRAD_ACCUM_STEPS=2 \
+MAX_STEPS=50 \
+SAVE_STEPS=50 \
+LOGGING_STEPS=5 \
+RUN_CONFIG=qwen35_2b_opsd_lora_bs4_ga2_test \
+OPSD_DATASET=/DATA_A/data/hyh/Qwen3.5/qwen3.5_segment_summary_2B_0309/train/train_0115_whole.jsonl \
+MODEL_DIR=/DATA_A/models/Qwen3.5-2B \
+OUTPUT_DIR=/DATA_B/hyh/opsd_outputs \
+bash scripts/run_opsd_qwen35_2b_5090.sh
+```
+
+第三步：如果显存还是很空，可以关闭 gradient checkpointing。
+
+```bash
+GRADIENT_CHECKPOINTING=False \
+PER_DEVICE_BATCH_SIZE=4 \
+GRAD_ACCUM_STEPS=2 \
+MAX_STEPS=50 \
+SAVE_STEPS=50 \
+LOGGING_STEPS=5 \
+RUN_CONFIG=qwen35_2b_opsd_lora_bs4_ga2_no_ckpt_test \
+OPSD_DATASET=/DATA_A/data/hyh/Qwen3.5/qwen3.5_segment_summary_2B_0309/train/train_0115_whole.jsonl \
+MODEL_DIR=/DATA_A/models/Qwen3.5-2B \
+OUTPUT_DIR=/DATA_B/hyh/opsd_outputs \
+bash scripts/run_opsd_qwen35_2b_5090.sh
+```
+
+如果任务输出本来不需要 1024 token，还可以降低 `MAX_COMPLETION_LENGTH`。OPSD 每步都要先生成 student completion，生成长度越短，速度提升越明显。
+
+```bash
+MAX_COMPLETION_LENGTH=512 \
+PER_DEVICE_BATCH_SIZE=4 \
+GRAD_ACCUM_STEPS=2 \
+MAX_STEPS=50 \
+SAVE_STEPS=50 \
+RUN_CONFIG=qwen35_2b_opsd_lora_len512_test \
+OPSD_DATASET=/DATA_A/data/hyh/Qwen3.5/qwen3.5_segment_summary_2B_0309/train/train_0115_whole.jsonl \
+MODEL_DIR=/DATA_A/models/Qwen3.5-2B \
+OUTPUT_DIR=/DATA_B/hyh/opsd_outputs \
+bash scripts/run_opsd_qwen35_2b_5090.sh
+```
+
+不建议一开始就同时增大 `PER_DEVICE_BATCH_SIZE` 和 `GRAD_ACCUM_STEPS`，因为这会改变有效 batch size。比如 `PER_DEVICE_BATCH_SIZE=4`、`GRAD_ACCUM_STEPS=8`、4 卡时有效 batch size 会变成 128，训练动态和学习率可能都要重新调。
 
 ## Checkpoint 和推理
 

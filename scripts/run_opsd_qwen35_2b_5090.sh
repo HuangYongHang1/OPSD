@@ -15,6 +15,7 @@ WANDB_ENTITY="${WANDB_ENTITY:-}"
 
 PER_DEVICE_BATCH_SIZE="${PER_DEVICE_BATCH_SIZE:-1}"
 GRAD_ACCUM_STEPS="${GRAD_ACCUM_STEPS:-8}"
+GRADIENT_CHECKPOINTING="${GRADIENT_CHECKPOINTING:-True}"
 MAX_LENGTH="${MAX_LENGTH:-8192}"
 MAX_COMPLETION_LENGTH="${MAX_COMPLETION_LENGTH:-1024}"
 STUDENT_THINKING="${STUDENT_THINKING:-False}"
@@ -58,6 +59,11 @@ fi
 if [[ -n "$WANDB_ENTITY" ]]; then
     EXTRA_TRAINING_ARGS+=(--wandb_entity "$WANDB_ENTITY")
 fi
+case "$GRADIENT_CHECKPOINTING" in
+    True|true|TRUE|1|yes|YES|y|Y)
+        EXTRA_TRAINING_ARGS+=(--gradient_checkpointing)
+        ;;
+esac
 
 accelerate launch \
     --config_file "$ACCELERATE_CONFIG" \
@@ -76,7 +82,6 @@ accelerate launch \
     --learning_rate "${LEARNING_RATE:-5e-6}" \
     --max_grad_norm 0.1 \
     --per_device_train_batch_size "$PER_DEVICE_BATCH_SIZE" \
-    --gradient_checkpointing \
     --gradient_accumulation_steps "$GRAD_ACCUM_STEPS" \
     --output_dir "$OUTPUT_DIR" \
     --run_config "${RUN_CONFIG:-qwen35_2b_5090_lora_nonthink_topk256}" \

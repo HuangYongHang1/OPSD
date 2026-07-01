@@ -367,7 +367,9 @@ if __name__ == "__main__":
     print(f"Using attention implementation: {model_args.attn_implementation or 'flash_attention_2'}")
     print(f"{'='*80}\n")
 
-    model_use_cache = False if training_args.gradient_checkpointing else True
+    # Keep training forwards from materializing KV cache. Generation methods
+    # temporarily enable cache around model.generate() and restore this value.
+    model_use_cache = False
     model_kwargs = dict(
         revision=model_args.model_revision,
         trust_remote_code=model_args.trust_remote_code,
