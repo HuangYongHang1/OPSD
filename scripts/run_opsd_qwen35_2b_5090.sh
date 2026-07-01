@@ -10,6 +10,8 @@ OPSD_DATASET_SPLIT="${OPSD_DATASET_SPLIT:-train}"
 ACCELERATE_CONFIG="${ACCELERATE_CONFIG:-accelerate_5090_zero2.yaml}"
 MAIN_PROCESS_PORT="${MAIN_PROCESS_PORT:-12949}"
 NUM_PROCESSES="${NUM_PROCESSES:-4}"
+WANDB_PROJECT="${WANDB_PROJECT:-OPSD}"
+WANDB_ENTITY="${WANDB_ENTITY:-}"
 
 PER_DEVICE_BATCH_SIZE="${PER_DEVICE_BATCH_SIZE:-1}"
 GRAD_ACCUM_STEPS="${GRAD_ACCUM_STEPS:-8}"
@@ -27,9 +29,34 @@ export NCCL_DEBUG="${NCCL_DEBUG:-WARN}"
 export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
 export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
 
+if [[ -n "${WANDB_API_KEY:-}" ]]; then
+    export WANDB_API_KEY
+    export WANDB_MODE="${WANDB_MODE:-online}"
+else
+    export WANDB_MODE="${WANDB_MODE:-offline}"
+fi
+export WANDB_PROJECT
+if [[ -n "$WANDB_ENTITY" ]]; then
+    export WANDB_ENTITY
+fi
+
+if [[ "$WANDB_MODE" == "offline" || "$WANDB_MODE" == "disabled" ]]; then
+    echo "[INFO] Running with WANDB_MODE=$WANDB_MODE"
+elif [[ -z "${WANDB_API_KEY:-}" ]]; then
+    echo "[WARN] WANDB_MODE=$WANDB_MODE but WANDB_API_KEY is not set; wandb may prompt or fail."
+elif command -v wandb >/dev/null 2>&1; then
+    wandb login --relogin "$WANDB_API_KEY" >/dev/null
+    echo "[INFO] W&B online logging enabled: project=$WANDB_PROJECT"
+else
+    echo "[WARN] wandb CLI not found; Python wandb will use WANDB_API_KEY if the package is installed."
+fi
+
 EXTRA_TRAINING_ARGS=()
 if [[ -n "${MAX_STEPS:-}" ]]; then
     EXTRA_TRAINING_ARGS+=(--max_steps "$MAX_STEPS")
+fi
+if [[ -n "$WANDB_ENTITY" ]]; then
+    EXTRA_TRAINING_ARGS+=(--wandb_entity "$WANDB_ENTITY")
 fi
 
 accelerate launch \
@@ -80,5 +107,5 @@ accelerate launch \
     --reapply_chat_template_to_input "$REAPPLY_CHAT_TEMPLATE_TO_INPUT" \
     --top_k_loss "${TOP_K_LOSS:-256}" \
     --jsd_token_clip "${JSD_TOKEN_CLIP:-1e-6}" \
-    --wandb_project "${WANDB_PROJECT:-OPSD}" \
+    --wandb_project "$WANDB_PROJECT" \
     "${EXTRA_TRAINING_ARGS[@]}"
