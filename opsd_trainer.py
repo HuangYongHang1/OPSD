@@ -144,8 +144,22 @@ class OPSDTrainer(SFTTrainer):
         ema_decay: float = 0.999,
         student_thinking: bool = False,
         teacher_thinking: bool = True,
+        close_teacher_thinking_before_scoring: bool = False,
+        reapply_chat_template_to_input: bool = True,
+        problem_field: str = "problem",
+        solution_field: str = "solution",
+        input_field: str = "input",
+        output_field: str = "output",
     ):
-        self.model_name_or_path = model if isinstance(model, str) else model.config._name_or_path
+        self.model_name_or_path = (
+            model
+            if isinstance(model, str)
+            else getattr(model.config, "_name_or_path", None) or getattr(model, "name_or_path", None)
+        )
+        self.problem_field = problem_field
+        self.solution_field = solution_field
+        self.input_field = input_field
+        self.output_field = output_field
         self.model_revision = getattr(args, "student_model_revision", None)
         if isinstance(model, str) and self.model_revision is not None:
             args.model_init_kwargs = args.model_init_kwargs or {}
@@ -159,6 +173,12 @@ class OPSDTrainer(SFTTrainer):
                 reason_first=reason_first,
                 student_thinking=student_thinking,
                 teacher_thinking=teacher_thinking,
+                close_teacher_thinking_before_scoring=close_teacher_thinking_before_scoring,
+                reapply_chat_template_to_input=reapply_chat_template_to_input,
+                problem_field=problem_field,
+                solution_field=solution_field,
+                input_field=input_field,
+                output_field=output_field,
             )
 
         super().__init__(
@@ -368,8 +388,10 @@ class OPSDTrainer(SFTTrainer):
     def _set_signature_columns_if_needed(self):
         super()._set_signature_columns_if_needed()
         required_columns = [
-            "problem",
-            "solution",
+            self.problem_field,
+            self.solution_field,
+            self.input_field,
+            self.output_field,
         ]
         if self._signature_columns is None:
             self._signature_columns = required_columns

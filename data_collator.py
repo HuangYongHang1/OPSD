@@ -1,3 +1,5 @@
+import re
+
 import torch
 
 
@@ -5,8 +7,12 @@ class SelfDistillationDataCollator:
     """
     Data collator for self-distillation that creates both student and teacher inputs.
 
-    Student: sees only the problem (with chat template)
-    Teacher: sees problem + solution + transition prompt (with chat template)
+    Student: sees only the prompt.
+    Teacher: sees the prompt plus a reference response/solution.
+
+    Supported dataset schemas:
+    - Math OPSD: {"problem": "...", "solution": "..."}
+    - SFT-style: {"input": "<chat prompt ending in assistant prefix>", "output": "..."}
 
     To enable batch-level operations (like original GKD), we pad prompts to the same length
     within each batch, and track the actual (unpadded) prompt lengths for loss masking.
@@ -19,27 +25,54 @@ class SelfDistillationDataCollator:
         reason_first=True,
         student_thinking=False,
         teacher_thinking=True,
+        close_teacher_thinking_before_scoring=False,
+        reapply_chat_template_to_input=True,
+        problem_field="problem",
+        solution_field="solution",
+        input_field="input",
+        output_field="output",
     ):
         self.tokenizer = tokenizer
         self.max_length = max_length
         self.reason_first = reason_first
         self.student_thinking = student_thinking
         self.teacher_thinking = teacher_thinking
+        self.close_teacher_thinking_before_scoring = close_teacher_thinking_before_scoring
+        self.reapply_chat_template_to_input = reapply_chat_template_to_input
+        self.problem_field = problem_field
+        self.solution_field = solution_field
+        self.input_field = input_field
+        self.output_field = output_field
+        self.teacher_thinking_prefill = (
+            "I have reviewed the reference answer and will use it only as private guidance."
+        )
 
         # Prompt for reasoning about the solution before teaching
-        self.reason_first_prompt = (
+        self.math_reason_first_prompt = (
             "\n\nThe reference reasoning above arrives at the correct answer. "
             "Please analyze this solution and explain the key reasoning steps and problem-solving strategies employed. "
             "Do NOT use <think> tags. Do NOT derive your own solution. "
             "Simply analyze and explain the reference solution provided above.\n"
         )
+        self.generic_reason_first_prompt = (
+            "\n\nThe reference response above is a high-quality answer to the original prompt. "
+            "Please analyze the user's intent, constraints, and the response strategy. "
+            "Do NOT use <think> tags. Do NOT write a new final answer yet. "
+            "Simply analyze why the reference response works.\n"
+        )
+
         # Prompt for transitioning to teaching mode after reasoning
-        self.transition_prompt = (
+        self.math_transition_prompt = (
             "\n\nAfter reading the reference solution above, make sure you truly understand "
             "the reasoning behind each step — do not copy or paraphrase it. Now, using your "
             "own words and independent reasoning, derive the same final answer to the problem above. "
             "Think step by step, explore different approaches, and don't be afraid to backtrack "
             "or reconsider if something doesn't work out:\n"
+        )
+        self.generic_transition_prompt = (
+            "\n\nAfter reading the reference response above, make sure you understand the user's "
+            "intent, constraints, and desired style. Now answer the original prompt in your own "
+            "words. Do not copy the reference response verbatim unless the task requires exact wording:\n"
         )
 
         # Set padding side explicitly for consistency
@@ -47,6 +80,131 @@ class SelfDistillationDataCollator:
         self.tokenizer.padding_side = "right"
         print(f"[DataCollator] Set padding_side to: {self.tokenizer.padding_side}")
         print(f"[DataCollator] Reason first mode: {self.reason_first}")
+        print(
+            "[DataCollator] Close teacher thinking before scoring: "
+            f"{self.close_teacher_thinking_before_scoring}"
+        )
+        print(f"[DataCollator] Reapply chat template to input: {self.reapply_chat_template_to_input}")
+        print(
+            "[DataCollator] Supported schemas: "
+            f"{self.problem_field}/{self.solution_field} and {self.input_field}/{self.output_field}"
+        )
+
+    def _maybe_close_teacher_thinking(self, teacher_prompt):
+        if not (self.teacher_thinking and self.close_teacher_thinking_before_scoring):
+            return teacher_prompt
+        if "</think>" in teacher_prompt.rsplit("<|im_start|>assistant", maxsplit=1)[-1]:
+            return teacher_prompt
+        return f"{teacher_prompt}{self.teacher_thinking_prefill}\n</think>\n\n"
+
+    def _extract_chatml_user_content(self, prompt):
+        """Best-effort extraction of the user text from a Qwen-style ChatML prompt."""
+        start_marker = "<|im_start|>user"
+        end_marker = "<|im_end|>"
+        start = prompt.find(start_marker)
+        if start == -1:
+            return prompt.strip()
+        start += len(start_marker)
+        end = prompt.find(end_marker, start)
+        if end == -1:
+            return prompt[start:].strip()
+        return prompt[start:end].strip()
+
+    def _parse_chatml_messages(self, prompt):
+        """Parse simple ChatML into messages, dropping a trailing empty assistant generation prefix."""
+        if "<|im_start|>" not in prompt:
+            return [{"role": "user", "content": prompt}]
+
+        messages = []
+        pattern = re.compile(r"<\|im_start\|>(\w+)\n(.*?)(?:<\|im_end\|>|$)", re.DOTALL)
+        for match in pattern.finditer(prompt):
+            role = match.group(1)
+            content = match.group(2)
+            if role not in {"system", "user", "assistant", "tool"}:
+                continue
+            if role == "assistant" and match.end() == len(prompt) and not content.strip():
+                continue
+            messages.append({"role": role, "content": content.strip()})
+
+        return messages or [{"role": "user", "content": prompt.strip()}]
+
+    def _build_prompts(self, feature):
+        if self.problem_field in feature and self.solution_field in feature:
+            problem = feature[self.problem_field]
+            solution = feature[self.solution_field]
+
+            student_user_message = (
+                f"Problem: {problem}\n\nPlease reason step by step, and put your final answer within \\boxed{{}}."
+            )
+            student_messages = [{"role": "user", "content": student_user_message}]
+            student_prompt = self.tokenizer.apply_chat_template(
+                student_messages,
+                tokenize=False,
+                add_generation_prompt=True,
+                enable_thinking=self.student_thinking,
+            )
+
+            reasoning_user_message = (
+                f"Problem: {problem}\n\n"
+                f"Here is a correct reasoning to this problem:"
+                f"=== Reference Reasoning Start ===\n"
+                f"{solution}\n"
+                f"=== Reference Reasoning End ===\n\n"
+                f"{self.math_reason_first_prompt}"
+            )
+            teacher_user_message = (
+                f"Problem: {problem}\n\n"
+                f"Here is a reference solution to this problem:\n"
+                f"=== Reference Solution Begin ===\n{solution}\n=== Reference Solution End ===\n"
+                f"{self.math_transition_prompt}\n"
+                f"Please reason step by step, and put your final answer within \\boxed{{}}."
+            )
+            transition_text = (
+                f"\n{self.math_transition_prompt}\n"
+                f"Please reason step by step, and put your final answer within \\boxed{{}}."
+            )
+            return student_prompt, reasoning_user_message, teacher_user_message, transition_text
+
+        if self.input_field in feature and self.output_field in feature:
+            source_prompt = str(feature[self.input_field])
+            reference_response = str(feature[self.output_field])
+
+            # Re-apply the current model's chat template by default. Older SFT data may already
+            # contain a ChatML assistant prefix, but not the Qwen3/Qwen3.5 thinking markers.
+            # Re-templating keeps student_thinking/teacher_thinking behavior consistent.
+            source_messages = self._parse_chatml_messages(source_prompt)
+            original_prompt = self._extract_chatml_user_content(source_prompt)
+            if "<|im_start|>" in source_prompt and not self.reapply_chat_template_to_input:
+                student_prompt = source_prompt
+            else:
+                student_prompt = self.tokenizer.apply_chat_template(
+                    source_messages,
+                    tokenize=False,
+                    add_generation_prompt=True,
+                    enable_thinking=self.student_thinking,
+                )
+
+            reasoning_user_message = (
+                f"Original prompt:\n{original_prompt}\n\n"
+                f"Here is a high-quality reference response:\n"
+                f"=== Reference Response Begin ===\n{reference_response}\n=== Reference Response End ===\n"
+                f"{self.generic_reason_first_prompt}"
+            )
+            teacher_user_message = (
+                f"Original prompt:\n{original_prompt}\n\n"
+                f"Here is a high-quality reference response:\n"
+                f"=== Reference Response Begin ===\n{reference_response}\n=== Reference Response End ===\n"
+                f"{self.generic_transition_prompt}"
+            )
+            transition_text = f"\n{self.generic_transition_prompt}"
+            return student_prompt, reasoning_user_message, teacher_user_message, transition_text
+
+        available = ", ".join(sorted(feature.keys()))
+        raise KeyError(
+            "Unsupported dataset schema. Expected either "
+            f"'{self.problem_field}'/'{self.solution_field}' or "
+            f"'{self.input_field}'/'{self.output_field}'. Available fields: {available}"
+        )
 
     def __call__(self, features):
 
@@ -56,33 +214,15 @@ class SelfDistillationDataCollator:
         student_prompts = []
         teacher_prompts = []
         teacher_reasoning_prompts = []  # NEW: for reason_first mode
+        teacher_transition_texts = []
 
         for feature in features:
-            # Extract problem and solution from dataset
-            # Handle different possible column names
-            problem = feature["problem"]
-            solution = feature["solution"]
-
-            # Student prompt: just the problem with instruction (matching evaluation format)
-            student_user_message = f"Problem: {problem}\n\nPlease reason step by step, and put your final answer within \\boxed{{}}."
-            student_messages = [{"role": "user", "content": student_user_message}]
-
-            # Apply chat template for student (matching evaluation)
-            student_prompt = self.tokenizer.apply_chat_template(
-                student_messages, tokenize=False, add_generation_prompt=True, enable_thinking=self.student_thinking
-            )
+            student_prompt, reasoning_user_message, teacher_user_message, transition_text = self._build_prompts(feature)
             student_prompts.append(student_prompt)
+            teacher_transition_texts.append(transition_text)
 
             if self.reason_first:
                 # Reasoning prompt: ask teacher to analyze the solution
-                reasoning_user_message = (
-                    f"Problem: {problem}\n\n"
-                    f"Here is a correct reasoning to this problem:"
-                    f"=== Reference Reasoning Start ===\n"
-                    f"{solution}\n"
-                    f"=== Reference Reasoning End ===\n\n"
-                    f"{self.reason_first_prompt}"
-                )
                 reasoning_messages = [{"role": "user", "content": reasoning_user_message}]
                 reasoning_prompt = self.tokenizer.apply_chat_template(
                     reasoning_messages, tokenize=False, add_generation_prompt=True
@@ -94,19 +234,13 @@ class SelfDistillationDataCollator:
                 teacher_prompts.append("")  # Placeholder
             else:
                 # Original teacher prompt (unchanged)
-                teacher_user_message = (
-                    f"Problem: {problem}\n\n"
-                    f"Here is a reference solution to this problem:\n"
-                    f"=== Reference Solution Begin ===\n{solution}\n=== Reference Solution End ===\n"
-                    f"{self.transition_prompt}\n"
-                    f"Please reason step by step, and put your final answer within \\boxed{{}}."
-                )
                 teacher_messages = [{"role": "user", "content": teacher_user_message}]
 
                 # Apply chat template for teacher
                 teacher_prompt = self.tokenizer.apply_chat_template(
                     teacher_messages, tokenize=False, add_generation_prompt=True, enable_thinking=self.teacher_thinking
                 )
+                teacher_prompt = self._maybe_close_teacher_thinking(teacher_prompt)
                 teacher_prompts.append(teacher_prompt)
 
         # Tokenize WITHOUT padding first to get true lengths
@@ -159,10 +293,9 @@ class SelfDistillationDataCollator:
 
             # Tokenize transition prompt (this will be appended after reasoning)
             # Don't use chat template here - just the raw text
-            transition_text = f"\n{self.transition_prompt}\nPlease reason step by step, and put your final answer within \\boxed{{}}."
             transition_encoded = self.tokenizer(
-                [transition_text] * batch_size,
-                padding=False,
+                teacher_transition_texts,
+                padding="longest",
                 truncation=False,
                 return_tensors="pt",
             )
