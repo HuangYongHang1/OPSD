@@ -165,6 +165,15 @@ class OPSDTrainer(SFTTrainer):
             args.model_init_kwargs = args.model_init_kwargs or {}
             args.model_init_kwargs.setdefault("revision", self.model_revision)
 
+        # OPSD builds student/teacher inputs in the custom collator from raw
+        # problem/solution or input/output columns, so TRL's default SFT text
+        # tokenization would look for a "text" column and break this dataset.
+        if hasattr(args, "dataset_kwargs"):
+            args.dataset_kwargs = dict(args.dataset_kwargs or {})
+            args.dataset_kwargs["skip_prepare_dataset"] = True
+        if hasattr(args, "remove_unused_columns"):
+            args.remove_unused_columns = False
+
         # Custom data collator for self-distillation
         if data_collator is None:
             data_collator = SelfDistillationDataCollator(
