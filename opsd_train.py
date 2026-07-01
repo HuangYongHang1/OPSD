@@ -5,7 +5,6 @@ from datasets import load_dataset
 from transformers import AutoTokenizer, GenerationConfig
 
 from trl import (
-    LogCompletionsCallback,
     ModelConfig,
     ScriptArguments,
     TrlParser,
@@ -431,6 +430,8 @@ if __name__ == "__main__":
     )
 
     if training_args.eval_strategy != "no":
+        from trl import LogCompletionsCallback
+
         generation_config = GenerationConfig(
             max_new_tokens=training_args.max_completion_length,
             do_sample=True,
