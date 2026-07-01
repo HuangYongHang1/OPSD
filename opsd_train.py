@@ -155,6 +155,26 @@ class CustomScriptArguments(ScriptArguments):
         default="output",
         metadata={"help": "Reference response field for SFT-style datasets."},
     )
+    empty_cache_during_loss: bool = field(
+        default=False,
+        metadata={
+            "help": "Call empty_cache() between student, teacher, and loss phases. "
+            "This can lower peak memory but adds synchronization overhead."
+        },
+    )
+    generation_debug: bool = field(
+        default=False,
+        metadata={
+            "help": "Print verbose generation diagnostics. Useful for debugging but noisy and slower."
+        },
+    )
+    generation_save_steps: int = field(
+        default=0,
+        metadata={
+            "help": "Save generated prompt/completion samples every N optimizer steps. "
+            "Set 0 to disable text gathering and JSON writes."
+        },
+    )
 
 
 def load_model_for_training(model_args, model_kwargs, model_loader: str = "auto"):
@@ -434,6 +454,9 @@ if __name__ == "__main__":
         solution_field=script_args.solution_field,
         input_field=script_args.input_field,
         output_field=script_args.output_field,
+        empty_cache_during_loss=script_args.empty_cache_during_loss,
+        generation_debug=script_args.generation_debug,
+        generation_save_steps=script_args.generation_save_steps,
     )
 
     if training_args.eval_strategy != "no":

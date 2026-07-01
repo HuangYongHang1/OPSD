@@ -150,6 +150,9 @@ class OPSDTrainer(SFTTrainer):
         solution_field: str = "solution",
         input_field: str = "input",
         output_field: str = "output",
+        empty_cache_during_loss: bool = False,
+        generation_debug: bool = False,
+        generation_save_steps: int = 0,
     ):
         self.model_name_or_path = (
             model
@@ -217,6 +220,8 @@ class OPSDTrainer(SFTTrainer):
         self.reason_first = reason_first
         self.top_k_loss = top_k_loss
         self.jsd_token_clip = jsd_token_clip
+        self.empty_cache_during_loss = empty_cache_during_loss
+        self.generation_debug = generation_debug
         self.use_ema_teacher = use_ema_teacher
         self.ema_decay = ema_decay
         self._ema_params = None  # lazily initialized on first optimizer step
@@ -265,7 +270,7 @@ class OPSDTrainer(SFTTrainer):
 
         # Track generation outputs for saving
         self._generation_outputs_buffer = []
-        self._generation_save_frequency = 5  # Save every 5 steps
+        self._generation_save_frequency = max(0, int(generation_save_steps))
 
         self.generation_config = GenerationConfig(
             max_new_tokens=args.max_completion_length,
@@ -697,7 +702,8 @@ class OPSDTrainer(SFTTrainer):
             minimal_output = MinimalOutput()
 
         del outputs_student
-        empty_cache()
+        if self.empty_cache_during_loss:
+            empty_cache()
 
         # === TEACHER FORWARD - Extract log-probs immediately ===
         # Choose teacher context based on mode:
@@ -730,7 +736,8 @@ class OPSDTrainer(SFTTrainer):
                 del teacher_logits
 
             del outputs_teacher
-            empty_cache()
+            if self.empty_cache_during_loss:
+                empty_cache()
 
         # === COMPUTE LOSS with only small tensors ===
         if self.use_thinking_machines_loss:
@@ -775,7 +782,8 @@ class OPSDTrainer(SFTTrainer):
             )
             del student_logits_for_loss, teacher_logits_for_loss
 
-        empty_cache()
+        if self.empty_cache_during_loss:
+            empty_cache()
 
         if return_outputs:
             minimal_output.loss = loss
@@ -836,16 +844,17 @@ class OPSDTrainer(SFTTrainer):
         model.config.use_cache = True
         generation_config.use_cache = True
 
-        print(f"\n{'='*80}")
-        print(f"GENERATION DEBUG INFO:")
-        print(f"  Model dtype: {model.dtype}")
-        print(f"  Model config use_cache: {model.config.use_cache}")
-        print(f"  Attention implementation: {getattr(model.config, '_attn_implementation', 'unknown')}")
-        print(f"  Generation config use_cache: {generation_config.use_cache}")
-        print(f"  Batch size: {inputs['student_prompts'].shape[0]}")
-        print(f"  Prompt length: {inputs['student_prompts'].shape[1]}")
-        print(f"  Max new tokens: {generation_config.max_new_tokens}")
-        print(f"{'='*80}\n")
+        if self.generation_debug and self.accelerator.is_main_process:
+            print(f"\n{'='*80}")
+            print(f"GENERATION DEBUG INFO:")
+            print(f"  Model dtype: {model.dtype}")
+            print(f"  Model config use_cache: {model.config.use_cache}")
+            print(f"  Attention implementation: {getattr(model.config, '_attn_implementation', 'unknown')}")
+            print(f"  Generation config use_cache: {generation_config.use_cache}")
+            print(f"  Batch size: {inputs['student_prompts'].shape[0]}")
+            print(f"  Prompt length: {inputs['student_prompts'].shape[1]}")
+            print(f"  Max new tokens: {generation_config.max_new_tokens}")
+            print(f"{'='*80}\n")
 
         # Generate output with respect to the student prompt only
         try:
@@ -869,9 +878,13 @@ class OPSDTrainer(SFTTrainer):
         num_tokens = total_completion_tokens * num_prompts
         avg_completion_length = total_completion_tokens
         tokens_per_sec = num_tokens / elapsed_time if elapsed_time > 0 else 0
-        print(
-            f"generation done - elapsed time: {elapsed_time:.2f}s, prompts: {num_prompts}, total tokens: {num_tokens}, avg length: {avg_completion_length}, speed: {tokens_per_sec:.1f} tok/s"
-        )
+        logging_steps = max(1, int(getattr(self.args, "logging_steps", 1)))
+        if self.accelerator.is_main_process and (
+            self.generation_debug or self.state.global_step % logging_steps == 0
+        ):
+            print(
+                f"generation done - elapsed time: {elapsed_time:.2f}s, prompts: {num_prompts}, total tokens: {num_tokens}, avg length: {avg_completion_length}, speed: {tokens_per_sec:.1f} tok/s"
+            )
 
         new_attention_mask = torch.ones_like(generated_tokens)
         new_labels = generated_tokens.clone()
@@ -1000,9 +1013,13 @@ class OPSDTrainer(SFTTrainer):
         num_prompts = len(completion_ids)
         avg_completion_length = total_completion_tokens / num_prompts if num_prompts > 0 else 0
         tokens_per_sec = total_completion_tokens / elapsed_time if elapsed_time > 0 else 0
-        print(
-            f"vLLM generation done - elapsed time: {elapsed_time:.2f}s, prompts: {num_prompts}, total tokens: {total_completion_tokens}, avg length: {avg_completion_length:.1f}, speed: {tokens_per_sec:.1f} tok/s"
-        )
+        logging_steps = max(1, int(getattr(self.args, "logging_steps", 1)))
+        if self.accelerator.is_main_process and (
+            self.generation_debug or self.state.global_step % logging_steps == 0
+        ):
+            print(
+                f"vLLM generation done - elapsed time: {elapsed_time:.2f}s, prompts: {num_prompts}, total tokens: {total_completion_tokens}, avg length: {avg_completion_length:.1f}, speed: {tokens_per_sec:.1f} tok/s"
+            )
 
         # We need to combine prompt and completion for new_input_ids
         # Tokenize prompts again to get prompt_ids on the correct device and format
@@ -1449,15 +1466,22 @@ class OPSDTrainer(SFTTrainer):
 
         inputs["labels"] = labels
 
-        # Log prompt and completion texts
-        self._textual_logs["prompt"].extend(gather_object(prompt_texts))
-        self._textual_logs["completion"].extend(gather_object(completion_texts))
+        should_collect_text = self.log_completions or self._generation_save_frequency > 0
+        if should_collect_text:
+            gathered_prompt_texts = gather_object(prompt_texts)
+            gathered_completion_texts = gather_object(completion_texts)
 
-        # Collect generation outputs for saving
-        for prompt, completion in zip(prompt_texts, completion_texts):
-            self._generation_outputs_buffer.append(
-                {"step": self.state.global_step, "prompt": prompt, "completion": completion}
-            )
+            if self.accelerator.is_main_process:
+                if self.log_completions:
+                    self._textual_logs["prompt"].extend(gathered_prompt_texts)
+                    self._textual_logs["completion"].extend(gathered_completion_texts)
+
+                # Collect generation outputs for optional JSON saving.
+                if self._generation_save_frequency > 0:
+                    for prompt, completion in zip(gathered_prompt_texts, gathered_completion_texts):
+                        self._generation_outputs_buffer.append(
+                            {"step": self.state.global_step, "prompt": prompt, "completion": completion}
+                        )
 
         # Occasionally print student's generation with 1% probability
         if random.random() < 0.01:
@@ -1473,7 +1497,8 @@ class OPSDTrainer(SFTTrainer):
 
         # Save generation outputs every N steps
         if (
-            self.state.global_step > 0
+            self._generation_save_frequency > 0
+            and self.state.global_step > 0
             and self.state.global_step % self._generation_save_frequency == 0
             and self.accelerator.sync_gradients
         ):

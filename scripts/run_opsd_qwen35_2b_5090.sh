@@ -16,6 +16,9 @@ WANDB_ENTITY="${WANDB_ENTITY:-}"
 PER_DEVICE_BATCH_SIZE="${PER_DEVICE_BATCH_SIZE:-1}"
 GRAD_ACCUM_STEPS="${GRAD_ACCUM_STEPS:-8}"
 GRADIENT_CHECKPOINTING="${GRADIENT_CHECKPOINTING:-True}"
+EMPTY_CACHE_DURING_LOSS="${EMPTY_CACHE_DURING_LOSS:-False}"
+GENERATION_DEBUG="${GENERATION_DEBUG:-False}"
+GENERATION_SAVE_STEPS="${GENERATION_SAVE_STEPS:-0}"
 MAX_LENGTH="${MAX_LENGTH:-8192}"
 MAX_COMPLETION_LENGTH="${MAX_COMPLETION_LENGTH:-1024}"
 STUDENT_THINKING="${STUDENT_THINKING:-False}"
@@ -110,6 +113,9 @@ accelerate launch \
     --teacher_thinking "$TEACHER_THINKING" \
     --close_teacher_thinking_before_scoring "$CLOSE_TEACHER_THINKING_BEFORE_SCORING" \
     --reapply_chat_template_to_input "$REAPPLY_CHAT_TEMPLATE_TO_INPUT" \
+    --empty_cache_during_loss "$EMPTY_CACHE_DURING_LOSS" \
+    --generation_debug "$GENERATION_DEBUG" \
+    --generation_save_steps "$GENERATION_SAVE_STEPS" \
     --top_k_loss "${TOP_K_LOSS:-256}" \
     --jsd_token_clip "${JSD_TOKEN_CLIP:-1e-6}" \
     --wandb_project "$WANDB_PROJECT" \

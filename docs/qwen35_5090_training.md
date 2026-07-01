@@ -102,10 +102,14 @@ bash scripts/run_opsd_qwen35_2b_5090.sh
 | `OPSD_DATASET` | `siyanzhao/Openthoughts_math_30k_opsd` | Hugging Face dataset 名称，或本地 `.json/.jsonl/.csv` 文件。你当前的数据是 `input/output` JSONL。 |
 | `OUTPUT_DIR` | `./outputs/opsd_qwen35_2b_5090` | 输出根目录。脚本会在下面追加 `RUN_CONFIG` 子目录。 |
 | `RUN_CONFIG` | `qwen35_2b_5090_lora_nonthink_topk256` | 训练 run 名称、checkpoint 子目录名，以及 W&B run 名的一部分。 |
+| `ACCELERATE_CONFIG` | `accelerate_5090_zero2.yaml` | Accelerate 配置。显存充足时可以测试 `accelerate_5090_ddp.yaml`，通常比 ZeRO-2 更轻。 |
 | `NUM_PROCESSES` | `4` | GPU/process 数量。4 卡 5090 保持 `4`。 |
 | `PER_DEVICE_BATCH_SIZE` | `1` | 每张卡的 micro-batch size。 |
 | `GRAD_ACCUM_STEPS` | `8` | 梯度累积步数。有效 batch size = `PER_DEVICE_BATCH_SIZE * GRAD_ACCUM_STEPS * NUM_PROCESSES`，默认是 `32`。 |
 | `GRADIENT_CHECKPOINTING` | `True` | 是否开启 gradient checkpointing。显存充足时可以设为 `False`，通常会更快但更吃显存。 |
+| `EMPTY_CACHE_DURING_LOSS` | `False` | 是否在 student/teacher/loss 阶段之间执行 `empty_cache()`。省显存但会同步 CUDA，显存充足时建议保持 `False`。 |
+| `GENERATION_DEBUG` | `False` | 是否打印每步 generation debug 信息。正式训练建议保持 `False`。 |
+| `GENERATION_SAVE_STEPS` | `0` | 每 N 个 optimizer step 保存生成样本 JSON。`0` 表示关闭，避免每步跨进程收集文本。 |
 | `NUM_TRAIN_EPOCHS` | `30` | 没有设置 `MAX_STEPS` 时按 epoch 训练。你的数据量较大，建议先从 `1` 开始。 |
 | `MAX_STEPS` | 未设置 | 直接限制总训练 step，适合 smoke test 和短测试。设置后会覆盖 epoch 停止逻辑。 |
 | `SAVE_STEPS` | `25` | checkpoint 保存间隔。正式长训建议用 `500` 或更大，避免 checkpoint 太多。 |
@@ -206,6 +210,23 @@ MAX_STEPS=50 \
 SAVE_STEPS=50 \
 LOGGING_STEPS=5 \
 RUN_CONFIG=qwen35_2b_opsd_lora_bs4_ga2_no_ckpt_test \
+OPSD_DATASET=/DATA_A/data/hyh/Qwen3.5/qwen3.5_segment_summary_2B_0309/train/train_0115_whole.jsonl \
+MODEL_DIR=/DATA_A/models/Qwen3.5-2B \
+OUTPUT_DIR=/DATA_B/hyh/opsd_outputs \
+bash scripts/run_opsd_qwen35_2b_5090.sh
+```
+
+第四步：如果每卡显存仍然只有十几 GB，可以测试 DDP。LoRA 训练的优化器状态很小，2B 模型在 32GB 卡上也放得下，DDP 可能比 ZeRO-2 少一些通信和分片开销。
+
+```bash
+ACCELERATE_CONFIG=accelerate_5090_ddp.yaml \
+GRADIENT_CHECKPOINTING=False \
+PER_DEVICE_BATCH_SIZE=8 \
+GRAD_ACCUM_STEPS=1 \
+MAX_STEPS=50 \
+SAVE_STEPS=50 \
+LOGGING_STEPS=5 \
+RUN_CONFIG=qwen35_2b_opsd_lora_ddp_bs8_ga1_test \
 OPSD_DATASET=/DATA_A/data/hyh/Qwen3.5/qwen3.5_segment_summary_2B_0309/train/train_0115_whole.jsonl \
 MODEL_DIR=/DATA_A/models/Qwen3.5-2B \
 OUTPUT_DIR=/DATA_B/hyh/opsd_outputs \
