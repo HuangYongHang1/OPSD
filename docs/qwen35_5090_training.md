@@ -1,16 +1,16 @@
-# Qwen3.5 2B OPSD LoRA Training on 4x RTX 5090
+# Qwen3.5 2B OPSD LoRA 训练说明（4x RTX 5090）
 
-This document describes the Qwen3.5 2B OPSD LoRA launch script:
+这份文档说明 Qwen3.5 2B 的 OPSD LoRA 训练脚本：
 
 ```bash
 scripts/run_opsd_qwen35_2b_5090.sh
 ```
 
-It is configured for 4 GPUs, DeepSpeed ZeRO-2, LoRA training, student non-thinking rollout, and teacher thinking scoring.
+当前配置面向 4 张 RTX 5090，使用 DeepSpeed ZeRO-2、LoRA 训练、student non-thinking rollout，以及 teacher thinking scoring。
 
-## Quick Start
+## 快速开始
 
-Run a 1-step smoke test first:
+建议先跑 1 step smoke test，确认环境、数据、模型加载、生成和反传都能走通：
 
 ```bash
 cd /DATA_B/hyh/OPSD
@@ -24,7 +24,7 @@ MAX_STEPS=1 \
 bash scripts/run_opsd_qwen35_2b_5090.sh
 ```
 
-Then run a short online W&B test:
+然后跑一个接入 W&B 的 50 step 短测试：
 
 ```bash
 cd /DATA_B/hyh/OPSD
@@ -43,7 +43,7 @@ LOGGING_STEPS=5 \
 bash scripts/run_opsd_qwen35_2b_5090.sh
 ```
 
-If that is stable, start a 1-epoch training run:
+如果 50 step 稳定，再启动 1 epoch 正式训练：
 
 ```bash
 cd /DATA_B/hyh/OPSD
@@ -62,25 +62,25 @@ LOGGING_STEPS=10 \
 bash scripts/run_opsd_qwen35_2b_5090.sh
 ```
 
-## W&B
+## W&B 配置
 
-The launch script supports online W&B through environment variables.
+启动脚本通过环境变量控制 W&B。
 
-| Variable | Default | Description |
+| 变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `WANDB_API_KEY` | unset | If set, the script runs `wandb login --relogin` and defaults to online logging. Do not commit this value. |
-| `WANDB_MODE` | `online` when `WANDB_API_KEY` is set, otherwise `offline` | Use `online` for normal tracking, `offline` for local-only logs, or `disabled` to disable W&B. |
-| `WANDB_PROJECT` | `OPSD` | W&B project name. |
-| `WANDB_ENTITY` | unset | Optional W&B entity/team/user. Set only if your account needs it. |
+| `WANDB_API_KEY` | 未设置 | 设置后脚本会自动执行 `wandb login --relogin`，并默认启用 online logging。不要把真实 key 写进代码或提交到 Git。 |
+| `WANDB_MODE` | 设置了 `WANDB_API_KEY` 时为 `online`，否则为 `offline` | 正式看训练用 `online`；只在本地保存日志用 `offline`；完全关闭用 `disabled`。 |
+| `WANDB_PROJECT` | `OPSD` | W&B project 名称。 |
+| `WANDB_ENTITY` | 未设置 | 可选的 W&B 用户、团队或 entity。只有你的账号需要指定时才设置。 |
 
-Safer interactive key entry:
+比较安全的输入方式：
 
 ```bash
 read -s WANDB_API_KEY
 export WANDB_API_KEY
 ```
 
-One-line key passing also works, but may be saved in shell history:
+也可以一行传入，但这种方式可能会被 shell history 记录：
 
 ```bash
 WANDB_API_KEY="your_wandb_api_key" \
@@ -94,76 +94,76 @@ SAVE_STEPS=500 \
 bash scripts/run_opsd_qwen35_2b_5090.sh
 ```
 
-## Important Training Parameters
+## 主要训练参数
 
-| Variable | Default | Meaning |
+| 变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `MODEL_DIR` | `/Users/hyh/Desktop/Qwen3.5_2B` | Local path to the base Qwen3.5 model. On the server, use `/DATA_A/models/Qwen3.5-2B`. |
-| `OPSD_DATASET` | `siyanzhao/Openthoughts_math_30k_opsd` | HF dataset name or local `.json/.jsonl/.csv` file. Your current file uses `input/output` JSONL. |
-| `OUTPUT_DIR` | `./outputs/opsd_qwen35_2b_5090` | Output root. The script appends `RUN_CONFIG`. |
-| `RUN_CONFIG` | `qwen35_2b_5090_lora_nonthink_topk256` | Run/checkpoint subdirectory and W&B run prefix. |
-| `NUM_PROCESSES` | `4` | Number of GPUs/processes. For 4x 5090, keep `4`. |
-| `PER_DEVICE_BATCH_SIZE` | `1` | Micro-batch size per GPU. |
-| `GRAD_ACCUM_STEPS` | `8` | Gradient accumulation. Effective batch size is `PER_DEVICE_BATCH_SIZE * GRAD_ACCUM_STEPS * NUM_PROCESSES`, default `32`. |
-| `NUM_TRAIN_EPOCHS` | `30` | Epoch count when `MAX_STEPS` is not set. For this dataset, start with `1`. |
-| `MAX_STEPS` | unset | Hard step limit. Useful for smoke tests and short runs. Overrides epoch-based stopping. |
-| `SAVE_STEPS` | `25` | Checkpoint save interval. For long runs, use `500` or larger to avoid too many checkpoints. |
-| `LOGGING_STEPS` | `2` | Logging interval. |
-| `LEARNING_RATE` | `5e-6` | LoRA learning rate. |
-| `LORA_R` | `64` | LoRA rank. |
-| `LORA_ALPHA` | `128` | LoRA alpha. |
-| `MAX_LENGTH` | `8192` | Max prompt/context length for collator tokenization. |
-| `MAX_COMPLETION_LENGTH` | `1024` | Student rollout max new tokens. |
-| `TEMPERATURE` | `1.0` | Student generation temperature. |
-| `TOP_P` | `1.0` | Student generation top-p. |
-| `TOP_K` | `20` | Student generation top-k. |
-| `PRESENCE_PENALTY` | `2.0` | Generation presence penalty. |
-| `TOP_K_LOSS` | `256` | Restrict token-level distillation loss to teacher top-k tokens. |
-| `JSD_TOKEN_CLIP` | `1e-6` | Per-token JSD clipping for stability. |
+| `MODEL_DIR` | `/Users/hyh/Desktop/Qwen3.5_2B` | Qwen3.5 base model 的本地路径。服务器上使用 `/DATA_A/models/Qwen3.5-2B`。 |
+| `OPSD_DATASET` | `siyanzhao/Openthoughts_math_30k_opsd` | Hugging Face dataset 名称，或本地 `.json/.jsonl/.csv` 文件。你当前的数据是 `input/output` JSONL。 |
+| `OUTPUT_DIR` | `./outputs/opsd_qwen35_2b_5090` | 输出根目录。脚本会在下面追加 `RUN_CONFIG` 子目录。 |
+| `RUN_CONFIG` | `qwen35_2b_5090_lora_nonthink_topk256` | 训练 run 名称、checkpoint 子目录名，以及 W&B run 名的一部分。 |
+| `NUM_PROCESSES` | `4` | GPU/process 数量。4 卡 5090 保持 `4`。 |
+| `PER_DEVICE_BATCH_SIZE` | `1` | 每张卡的 micro-batch size。 |
+| `GRAD_ACCUM_STEPS` | `8` | 梯度累积步数。有效 batch size = `PER_DEVICE_BATCH_SIZE * GRAD_ACCUM_STEPS * NUM_PROCESSES`，默认是 `32`。 |
+| `NUM_TRAIN_EPOCHS` | `30` | 没有设置 `MAX_STEPS` 时按 epoch 训练。你的数据量较大，建议先从 `1` 开始。 |
+| `MAX_STEPS` | 未设置 | 直接限制总训练 step，适合 smoke test 和短测试。设置后会覆盖 epoch 停止逻辑。 |
+| `SAVE_STEPS` | `25` | checkpoint 保存间隔。正式长训建议用 `500` 或更大，避免 checkpoint 太多。 |
+| `LOGGING_STEPS` | `2` | 日志记录间隔。 |
+| `LEARNING_RATE` | `5e-6` | LoRA 学习率。 |
+| `LORA_R` | `64` | LoRA rank。 |
+| `LORA_ALPHA` | `128` | LoRA alpha。 |
+| `MAX_LENGTH` | `8192` | collator 处理 prompt/context 的最大长度。 |
+| `MAX_COMPLETION_LENGTH` | `1024` | student rollout 的最大新 token 数。 |
+| `TEMPERATURE` | `1.0` | student generation temperature。 |
+| `TOP_P` | `1.0` | student generation top-p。 |
+| `TOP_K` | `20` | student generation top-k。 |
+| `PRESENCE_PENALTY` | `2.0` | generation presence penalty。 |
+| `TOP_K_LOSS` | `256` | 蒸馏损失只在 teacher top-k token 上计算，降低显存和计算压力。 |
+| `JSD_TOKEN_CLIP` | `1e-6` | 每个 token 的 JSD clipping，用于稳定训练。 |
 
-## Thinking Settings
+## Thinking 设置
 
-| Variable | Default | Meaning |
+| 变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `STUDENT_THINKING` | `False` | Student rollout is non-thinking. |
-| `TEACHER_THINKING` | `True` | Teacher scoring prompt uses Qwen thinking mode. |
-| `CLOSE_TEACHER_THINKING_BEFORE_SCORING` | `True` | Adds a teacher-only hidden thinking closure before scoring student tokens, reducing format mismatch risk. |
-| `REAPPLY_CHAT_TEMPLATE_TO_INPUT` | `True` | Re-parses `input` ChatML and applies the current Qwen3.5 chat template. |
+| `STUDENT_THINKING` | `False` | student rollout 不开启 thinking。 |
+| `TEACHER_THINKING` | `True` | teacher scoring prompt 开启 Qwen thinking mode。 |
+| `CLOSE_TEACHER_THINKING_BEFORE_SCORING` | `True` | 在 teacher-only 隐藏思考后补上 `</think>`，再对 student token 打分，降低格式错位风险。 |
+| `REAPPLY_CHAT_TEMPLATE_TO_INPUT` | `True` | 重新解析 `input` 中的 ChatML，并套当前 Qwen3.5 tokenizer 的 chat template。 |
 
-This is the intended setup: strong teacher in thinking mode guides a non-thinking student, while the student output remains final-answer style.
+当前推荐配置是：强 teacher 使用 thinking 模式指导 non-thinking student，但 student 的输出仍保持最终答案风格，不暴露 teacher 的思考过程。
 
-## Dataset Format
+## 数据集格式
 
-Your current SFT-style JSONL format is supported:
+你当前的 SFT-style JSONL 格式已经支持：
 
 ```json
 {"input": "<|im_start|>user\n...\n<|im_end|><|im_start|>assistant\n", "output": "..."}
 ```
 
-The code reads `input/output` by default. If a dataset uses different column names, override:
+代码默认读取 `input/output` 两列。如果你的数据列名不同，可以这样覆盖：
 
 ```bash
 INPUT_FIELD=prompt OUTPUT_FIELD=response bash scripts/run_opsd_qwen35_2b_5090.sh
 ```
 
-## Recommended Run Progression
+## 推荐训练流程
 
-1. `MAX_STEPS=1`: verify environment, model loading, data loading, generation, backward pass.
-2. `MAX_STEPS=50`: verify W&B online logging, speed, loss curves, checkpoint writing.
-3. `NUM_TRAIN_EPOCHS=1`: first real training run.
-4. Longer runs only after checking output quality and checkpoint size.
+1. `MAX_STEPS=1`：确认环境、模型加载、数据加载、生成和反传都没问题。
+2. `MAX_STEPS=50`：确认 W&B online logging、速度、loss 曲线和 checkpoint 保存。
+3. `NUM_TRAIN_EPOCHS=1`：进行第一次正式训练。
+4. 检查 checkpoint 推理效果和磁盘占用后，再决定是否增加 epoch 或 step。
 
-With 106,919 examples and default effective batch size 32, one epoch is about 3,342 optimizer steps.
+你的数据有 106,919 条样本，默认有效 batch size 是 32，所以 1 epoch 大约是 3,342 个 optimizer step。
 
-## Checkpoints and Inference
+## Checkpoint 和推理
 
-Checkpoints are saved under:
+checkpoint 会保存到：
 
 ```bash
 /DATA_B/hyh/opsd_outputs/<RUN_CONFIG>/
 ```
 
-Generate with base model plus a LoRA checkpoint:
+使用 base model 加 LoRA checkpoint 做 torch 原生推理：
 
 ```bash
 python scripts/generate_qwen35_torch.py \
@@ -172,4 +172,4 @@ python scripts/generate_qwen35_torch.py \
   --prompt "Summarize these points into one sentence: ..."
 ```
 
-Warnings about the Qwen3.5 fast path falling back to the torch implementation are not blocking. The model has already trained successfully in the smoke test with that fallback.
+关于 Qwen3.5 fast path 不可用并 fallback 到 torch implementation 的 warning，目前不阻塞训练。smoke test 已经在这个 fallback 下完整跑通。
