@@ -36,7 +36,7 @@ OPSD_DATASET=/DATA_A/data/hyh/Qwen3.5/qwen3.5_segment_summary_2B_0309/train/trai
 MODEL_DIR=/DATA_A/models/Qwen3.5-2B \
 OUTPUT_DIR=/DATA_B/hyh/opsd_outputs \
 WANDB_PROJECT=OPSD \
-RUN_CONFIG=qwen35_2b_opsd_lora_50step \
+WANDB_RUN_NAME=qwen35_2b_opsd_lora_50step \
 MAX_STEPS=50 \
 SAVE_STEPS=50 \
 LOGGING_STEPS=5 \
@@ -71,6 +71,7 @@ bash scripts/run_opsd_qwen35_2b_5090.sh
 | `WANDB_API_KEY` | 未设置 | 设置后脚本会自动执行 `wandb login --relogin`，并默认启用 online logging。不要把真实 key 写进代码或提交到 Git。 |
 | `WANDB_MODE` | 设置了 `WANDB_API_KEY` 时为 `online`，否则为 `offline` | 正式看训练用 `online`；只在本地保存日志用 `offline`；完全关闭用 `disabled`。 |
 | `WANDB_PROJECT` | `OPSD` | W&B project 名称。 |
+| `WANDB_RUN_NAME` | 未设置 | 可选的 W&B run 名别名。脚本会把它当作 `RUN_CONFIG` 使用；如果同时设置了 `RUN_CONFIG`，以 `RUN_CONFIG` 为准。 |
 | `WANDB_ENTITY` | 未设置 | 可选的 W&B 用户、团队或 entity。只有你的账号需要指定时才设置。 |
 
 比较安全的输入方式：
@@ -88,10 +89,16 @@ OPSD_DATASET=/DATA_A/data/hyh/Qwen3.5/qwen3.5_segment_summary_2B_0309/train/trai
 MODEL_DIR=/DATA_A/models/Qwen3.5-2B \
 OUTPUT_DIR=/DATA_B/hyh/opsd_outputs \
 WANDB_PROJECT=OPSD \
-RUN_CONFIG=qwen35_2b_opsd_lora \
+WANDB_RUN_NAME=qwen35_2b_opsd_lora \
 NUM_TRAIN_EPOCHS=1 \
 SAVE_STEPS=500 \
 bash scripts/run_opsd_qwen35_2b_5090.sh
+```
+
+W&B 的训练指标记录频率由 `LOGGING_STEPS` 控制，例如 `LOGGING_STEPS=10` 表示每 10 个 optimizer step 记录一次 loss、grad norm、learning rate 等指标。online 模式下 W&B 会持续同步这些日志；如果看到 offline run，通常是因为 `WANDB_MODE=offline` 还留在环境变量里，需要执行：
+
+```bash
+unset WANDB_MODE
 ```
 
 ## 主要训练参数

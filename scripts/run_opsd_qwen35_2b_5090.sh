@@ -12,6 +12,7 @@ MAIN_PROCESS_PORT="${MAIN_PROCESS_PORT:-12949}"
 NUM_PROCESSES="${NUM_PROCESSES:-4}"
 WANDB_PROJECT="${WANDB_PROJECT:-OPSD}"
 WANDB_ENTITY="${WANDB_ENTITY:-}"
+RUN_CONFIG="${RUN_CONFIG:-${WANDB_RUN_NAME:-qwen35_2b_5090_lora_nonthink_topk256}}"
 
 PER_DEVICE_BATCH_SIZE="${PER_DEVICE_BATCH_SIZE:-1}"
 GRAD_ACCUM_STEPS="${GRAD_ACCUM_STEPS:-8}"
@@ -47,7 +48,7 @@ elif [[ -z "${WANDB_API_KEY:-}" ]]; then
     echo "[WARN] WANDB_MODE=$WANDB_MODE but WANDB_API_KEY is not set; wandb may prompt or fail."
 elif command -v wandb >/dev/null 2>&1; then
     wandb login --relogin "$WANDB_API_KEY" >/dev/null
-    echo "[INFO] W&B online logging enabled: project=$WANDB_PROJECT"
+    echo "[INFO] W&B online logging enabled: project=$WANDB_PROJECT run=$RUN_CONFIG"
 else
     echo "[WARN] wandb CLI not found; Python wandb will use WANDB_API_KEY if the package is installed."
 fi
@@ -84,7 +85,7 @@ accelerate launch \
     --per_device_train_batch_size "$PER_DEVICE_BATCH_SIZE" \
     --gradient_accumulation_steps "$GRAD_ACCUM_STEPS" \
     --output_dir "$OUTPUT_DIR" \
-    --run_config "${RUN_CONFIG:-qwen35_2b_5090_lora_nonthink_topk256}" \
+    --run_config "$RUN_CONFIG" \
     --num_train_epochs "${NUM_TRAIN_EPOCHS:-30}" \
     --max_completion_length "$MAX_COMPLETION_LENGTH" \
     --save_steps "${SAVE_STEPS:-25}" \
