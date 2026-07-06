@@ -55,10 +55,9 @@ class SelfDistillationDataCollator:
             "Simply analyze and explain the reference solution provided above.\n"
         )
         self.generic_reason_first_prompt = (
-            "\n\nThe reference response above is a high-quality answer to the original prompt. "
-            "Please analyze the user's intent, constraints, and the response strategy. "
-            "Do NOT use <think> tags. Do NOT write a new final answer yet. "
-            "Simply analyze why the reference response works.\n"
+            "\n\nThe reference answer above is private guidance for the original request. "
+            "Do NOT use <think> tags. Do NOT write a public explanation. "
+            "Only note the target answer content and output style privately.\n"
         )
 
         # Prompt for transitioning to teaching mode after reasoning
@@ -70,9 +69,9 @@ class SelfDistillationDataCollator:
             "or reconsider if something doesn't work out:\n"
         )
         self.generic_transition_prompt = (
-            "\n\nAfter reading the reference response above, make sure you understand the user's "
-            "intent, constraints, and desired style. Now answer the original prompt in your own "
-            "words. Do not copy the reference response verbatim unless the task requires exact wording:\n"
+            "\n\nUse the private reference answer only as guidance. "
+            "Answer the original request directly. "
+            "Output only the final answer text, with no analysis, labels, or explanation:\n"
         )
 
         # Set padding side explicitly for consistency
@@ -185,15 +184,15 @@ class SelfDistillationDataCollator:
                 )
 
             reasoning_user_message = (
-                f"Original prompt:\n{original_prompt}\n\n"
-                f"Here is a high-quality reference response:\n"
-                f"=== Reference Response Begin ===\n{reference_response}\n=== Reference Response End ===\n"
+                f"{original_prompt}\n\n"
+                f"Private reference answer:\n"
+                f"{reference_response}\n"
                 f"{self.generic_reason_first_prompt}"
             )
             teacher_user_message = (
-                f"Original prompt:\n{original_prompt}\n\n"
-                f"Here is a high-quality reference response:\n"
-                f"=== Reference Response Begin ===\n{reference_response}\n=== Reference Response End ===\n"
+                f"{original_prompt}\n\n"
+                f"Private reference answer:\n"
+                f"{reference_response}\n"
                 f"{self.generic_transition_prompt}"
             )
             transition_text = f"\n{self.generic_transition_prompt}"

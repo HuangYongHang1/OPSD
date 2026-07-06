@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import argparse
+import json
+import re
 from pathlib import Path
 
 import torch
@@ -36,12 +38,70 @@ def resolve_dtype(dtype: str):
     return mapping[dtype]
 
 
+def extract_chatml_user_content(prompt: str) -> str:
+    start_marker = "<|im_start|>user"
+    end_marker = "<|im_end|>"
+    start = prompt.find(start_marker)
+    if start == -1:
+        return prompt.strip()
+    start += len(start_marker)
+    end = prompt.find(end_marker, start)
+    if end == -1:
+        return prompt[start:].strip()
+    return prompt[start:end].strip()
+
+
+def parse_chatml_messages(prompt: str):
+    if "<|im_start|>" not in prompt:
+        return [{"role": "user", "content": prompt}]
+
+    messages = []
+    pattern = re.compile(r"<\|im_start\|>(\w+)\n(.*?)(?:<\|im_end\|>|$)", re.DOTALL)
+    for match in pattern.finditer(prompt):
+        role = match.group(1)
+        content = match.group(2).strip()
+        if role not in {"system", "user", "assistant", "tool"}:
+            continue
+        if role == "assistant" and match.end() == len(prompt) and not content:
+            continue
+        messages.append({"role": role, "content": content})
+    return messages or [{"role": "user", "content": extract_chatml_user_content(prompt)}]
+
+
+def load_dataset_example(data_file: str, sample_index: int, input_field: str, output_field: str):
+    path = Path(data_file)
+    if not path.exists():
+        raise FileNotFoundError(f"data_file does not exist: {path}")
+
+    with path.open("r", encoding="utf-8") as handle:
+        for line_index, line in enumerate(handle):
+            if line_index != sample_index:
+                continue
+            example = json.loads(line)
+            if input_field not in example:
+                available = ", ".join(sorted(example.keys()))
+                raise KeyError(f"Input field '{input_field}' not found. Available fields: {available}")
+            return str(example[input_field]), example.get(output_field)
+
+    raise IndexError(f"sample_index {sample_index} is out of range for {path}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Generate with Qwen3.5 using native Transformers/Torch.")
     parser.add_argument("--model", default="/Users/hyh/Desktop/Qwen3.5_2B", help="Base model path.")
-    parser.add_argument("--checkpoint_dir", default=None, help="Optional LoRA checkpoint directory.")
+    parser.add_argument(
+        "--checkpoint_dir",
+        "--adapter",
+        dest="checkpoint_dir",
+        default=None,
+        help="Optional LoRA checkpoint directory.",
+    )
     parser.add_argument("--model_loader", default="image_text_to_text", choices=["causal_lm", "image_text_to_text"])
     parser.add_argument("--prompt", default="Problem: What is 17 + 28? Please reason step by step, and put your final answer within \\boxed{}.")
+    parser.add_argument("--data_file", default=None, help="Optional local .jsonl file to sample a prompt from.")
+    parser.add_argument("--sample_index", type=int, default=0, help="0-based line index used with --data_file.")
+    parser.add_argument("--input_field", default="input", help="Prompt field used with --data_file.")
+    parser.add_argument("--output_field", default="output", help="Reference field printed with --data_file when present.")
     parser.add_argument("--enable_thinking", default="False", help="True/False passed to the chat template.")
     parser.add_argument("--max_new_tokens", type=int, default=512)
     parser.add_argument("--temperature", type=float, default=0.7)
@@ -74,8 +134,18 @@ def main():
 
     model.eval()
 
+    reference = None
+    if args.data_file:
+        prompt, reference = load_dataset_example(
+            args.data_file, args.sample_index, args.input_field, args.output_field
+        )
+        messages = parse_chatml_messages(prompt)
+    else:
+        prompt = args.prompt
+        messages = [{"role": "user", "content": prompt}]
+
     text = tokenizer.apply_chat_template(
-        [{"role": "user", "content": args.prompt}],
+        messages,
         tokenize=False,
         add_generation_prompt=True,
         enable_thinking=str_to_bool(args.enable_thinking),
@@ -107,7 +177,13 @@ def main():
     completion = tokenizer.decode(completion_ids, skip_special_tokens=False)
 
     print("\n===== Prompt =====")
-    print(args.prompt)
+    if args.data_file:
+        print(extract_chatml_user_content(prompt))
+    else:
+        print(prompt)
+    if reference is not None:
+        print("\n===== Reference =====")
+        print(reference)
     print("\n===== Completion =====")
     print(completion)
 

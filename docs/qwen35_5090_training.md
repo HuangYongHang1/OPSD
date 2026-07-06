@@ -148,7 +148,9 @@ unset WANDB_MODE
 {"input": "<|im_start|>user\n...\n<|im_end|><|im_start|>assistant\n", "output": "..."}
 ```
 
-代码默认读取 `input/output` 两列。如果你的数据列名不同，可以这样覆盖：
+代码默认读取 `input/output` 两列。`input` 会作为 student 看到的原始请求，`output` 只会作为 teacher 的 private reference answer 使用；teacher 侧不会再添加“分析用户意图/解释 response strategy”的 meta prompt。
+
+如果你的数据列名不同，可以这样覆盖：
 
 ```bash
 INPUT_FIELD=prompt OUTPUT_FIELD=response bash scripts/run_opsd_qwen35_2b_5090.sh
@@ -250,7 +252,21 @@ checkpoint 会保存到：
 python scripts/generate_qwen35_torch.py \
   --model /DATA_A/models/Qwen3.5-2B \
   --adapter /DATA_B/hyh/opsd_outputs/qwen35_2b_opsd_lora_1epoch/checkpoint-500 \
+  --enable_thinking False \
+  --max_new_tokens 256 \
   --prompt "Summarize these points into one sentence: ..."
+```
+
+也可以直接从你的 jsonl 训练数据里抽一条样本推理，并打印 reference 对照：
+
+```bash
+python scripts/generate_qwen35_torch.py \
+  --model /DATA_A/models/Qwen3.5-2B \
+  --adapter /DATA_B/hyh/opsd_outputs/qwen35_2b_opsd_lora_1epoch/checkpoint-500 \
+  --data_file /DATA_A/data/hyh/Qwen3.5/qwen3.5_segment_summary_2B_0309/train/train_0115_whole.jsonl \
+  --sample_index 0 \
+  --enable_thinking False \
+  --max_new_tokens 256
 ```
 
 关于 Qwen3.5 fast path 不可用并 fallback 到 torch implementation 的 warning，目前不阻塞训练。smoke test 已经在这个 fallback 下完整跑通。
