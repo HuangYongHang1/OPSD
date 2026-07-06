@@ -38,6 +38,11 @@ if [[ -n "${WANDB_API_KEY:-}" ]]; then
 else
     export WANDB_MODE="${WANDB_MODE:-offline}"
 fi
+if [[ "$WANDB_MODE" == "disabled" ]]; then
+    REPORT_TO="${REPORT_TO:-none}"
+else
+    REPORT_TO="${REPORT_TO:-wandb}"
+fi
 export WANDB_PROJECT
 if [[ -n "$WANDB_ENTITY" ]]; then
     export WANDB_ENTITY
@@ -53,6 +58,7 @@ elif command -v wandb >/dev/null 2>&1; then
 else
     echo "[WARN] wandb CLI not found; Python wandb will use WANDB_API_KEY if the package is installed."
 fi
+echo "[INFO] Trainer report_to=$REPORT_TO"
 
 EXTRA_TRAINING_ARGS=()
 if [[ -n "${MAX_STEPS:-}" ]]; then
@@ -91,6 +97,7 @@ accelerate launch \
     --max_completion_length "$MAX_COMPLETION_LENGTH" \
     --save_steps "${SAVE_STEPS:-25}" \
     --logging_steps "${LOGGING_STEPS:-2}" \
+    --report_to "$REPORT_TO" \
     --attn_implementation "${ATTN_IMPLEMENTATION:-sdpa}" \
     --torch_dtype bfloat16 \
     --max_length "$MAX_LENGTH" \

@@ -73,6 +73,7 @@ bash scripts/run_opsd_qwen35_2b_5090.sh
 | `WANDB_PROJECT` | `OPSD` | W&B project 名称。 |
 | `WANDB_RUN_NAME` | 未设置 | 可选的 W&B run 名别名。脚本会把它当作 `RUN_CONFIG` 使用；如果同时设置了 `RUN_CONFIG`，以 `RUN_CONFIG` 为准。 |
 | `WANDB_ENTITY` | 未设置 | 可选的 W&B 用户、团队或 entity。只有你的账号需要指定时才设置。 |
+| `REPORT_TO` | `wandb`，当 `WANDB_MODE=disabled` 时为 `none` | Hugging Face Trainer 的日志后端。要在 W&B 页面看到 loss/grad norm/learning rate，保持 `wandb`。 |
 
 比较安全的输入方式：
 
@@ -95,7 +96,9 @@ SAVE_STEPS=500 \
 bash scripts/run_opsd_qwen35_2b_5090.sh
 ```
 
-W&B 的训练指标记录频率由 `LOGGING_STEPS` 控制，例如 `LOGGING_STEPS=10` 表示每 10 个 optimizer step 记录一次 loss、grad norm、learning rate 等指标。online 模式下 W&B 会持续同步这些日志；如果看到 offline run，通常是因为 `WANDB_MODE=offline` 还留在环境变量里，需要执行：
+W&B 的训练指标记录频率由 `LOGGING_STEPS` 控制，例如 `LOGGING_STEPS=10` 表示每 10 个 optimizer step 记录一次指标。默认会记录 `loss`、`on_policy_loss`、`grad_norm`、`learning_rate`、`epoch`，训练结束会记录 `train_loss`、`train_runtime`、`train_steps_per_second` 等。
+
+online 模式下 W&B 会持续同步这些日志；如果看到 offline run，通常是因为 `WANDB_MODE=offline` 还留在环境变量里，需要执行：
 
 ```bash
 unset WANDB_MODE
