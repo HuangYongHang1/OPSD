@@ -273,4 +273,34 @@ python scripts/generate_qwen35_torch.py \
   --max_new_tokens 256
 ```
 
+批量检查摘要 checkpoint 的格式和内容，可以使用：
+
+```bash
+bash scripts/test_qwen35_summary_checkpoint.sh
+```
+
+默认会测试：
+
+```bash
+/DATA_B/hyh/opsd_outputs/summary_segment_0706/qwen3.5_2b_opsd_summary_segment_v1/checkpoint-500
+```
+
+常用覆盖参数：
+
+```bash
+CHECKPOINT_DIR=/DATA_B/hyh/opsd_outputs/summary_segment_0706/qwen3.5_2b_opsd_summary_segment_v1/checkpoint-1000 \
+NUM_SAMPLES=16 \
+MAX_NEW_TOKENS=80 \
+bash scripts/test_qwen35_summary_checkpoint.sh
+```
+
+如果想固定看几条样本：
+
+```bash
+SAMPLE_INDICES=0,10,100 \
+bash scripts/test_qwen35_summary_checkpoint.sh
+```
+
+脚本会打印 prompt、reference、prediction，并标记 `<think>`、`The user wants`、`Summary:`、`Explanation:`、`Final Answer:` 等格式污染。
+
 关于 Qwen3.5 fast path 不可用并 fallback 到 torch implementation 的 warning，目前不阻塞训练。smoke test 已经在这个 fallback 下完整跑通。
