@@ -136,6 +136,7 @@ unset WANDB_MODE
 | `STUDENT_THINKING` | `False` | student rollout 不开启 thinking。 |
 | `TEACHER_THINKING` | `True` | teacher scoring prompt 开启 Qwen thinking mode。 |
 | `CLOSE_TEACHER_THINKING_BEFORE_SCORING` | `True` | 在 teacher-only 隐藏思考后补上 `</think>`，再对 student token 打分，降低格式错位风险。 |
+| `REASON_FIRST` | `False` | 不让 teacher 额外显式生成 reasoning 文本；摘要任务建议保持关闭，避免把分析风格蒸馏给 student。 |
 | `REAPPLY_CHAT_TEMPLATE_TO_INPUT` | `True` | 重新解析 `input` 中的 ChatML，并套当前 Qwen3.5 tokenizer 的 chat template。 |
 
 当前推荐配置是：强 teacher 使用 thinking 模式指导 non-thinking student，但 student 的输出仍保持最终答案风格，不暴露 teacher 的思考过程。
