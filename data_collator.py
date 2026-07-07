@@ -44,7 +44,7 @@ class SelfDistillationDataCollator:
         self.input_field = input_field
         self.output_field = output_field
         self.teacher_thinking_prefill = (
-            "I have reviewed the reference answer and will use it only as private guidance."
+            "I have reviewed the exact target answer and will score only the final-answer tokens."
         )
 
         # Prompt for reasoning about the solution before teaching
@@ -55,9 +55,9 @@ class SelfDistillationDataCollator:
             "Simply analyze and explain the reference solution provided above.\n"
         )
         self.generic_reason_first_prompt = (
-            "\n\nThe reference answer above is private guidance for the original request. "
-            "Do NOT use <think> tags. Do NOT write a public explanation. "
-            "Only note the target answer content and output style privately.\n"
+            "\n\nThe exact target answer above is the only correct final response. "
+            "Do NOT use <think> tags. Do NOT analyze, paraphrase, or explain it. "
+            "Only remember the exact target answer privately.\n"
         )
 
         # Prompt for transitioning to teaching mode after reasoning
@@ -69,9 +69,9 @@ class SelfDistillationDataCollator:
             "or reconsider if something doesn't work out:\n"
         )
         self.generic_transition_prompt = (
-            "\n\nUse the private reference answer only as guidance. "
-            "Answer the original request directly. "
-            "Output only the final answer text, with no analysis, labels, or explanation:\n"
+            "\n\nThe next assistant response must match the exact target answer above. "
+            "Do not add, remove, rephrase, label, or explain anything. "
+            "Output exactly the target answer text and then stop:\n"
         )
 
         # Set padding side explicitly for consistency
@@ -185,13 +185,13 @@ class SelfDistillationDataCollator:
 
             reasoning_user_message = (
                 f"{original_prompt}\n\n"
-                f"Private reference answer:\n"
+                f"Exact target answer:\n"
                 f"{reference_response}\n"
                 f"{self.generic_reason_first_prompt}"
             )
             teacher_user_message = (
                 f"{original_prompt}\n\n"
-                f"Private reference answer:\n"
+                f"Exact target answer:\n"
                 f"{reference_response}\n"
                 f"{self.generic_transition_prompt}"
             )

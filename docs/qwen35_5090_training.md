@@ -152,7 +152,7 @@ unset WANDB_MODE
 {"input": "<|im_start|>user\n...\n<|im_end|><|im_start|>assistant\n", "output": "..."}
 ```
 
-代码默认读取 `input/output` 两列。`input` 会作为 student 看到的原始请求，`output` 只会作为 teacher 的 private reference answer 使用；teacher 侧不会再添加“分析用户意图/解释 response strategy”的 meta prompt。
+代码默认读取 `input/output` 两列。`input` 会作为 student 看到的原始请求，`output` 会作为 teacher 看到的 exact target answer。teacher 侧会被要求按这个 target answer 的最终答案文本打分，不再添加“分析用户意图/解释 response strategy”的 meta prompt。
 
 如果你的数据列名不同，可以这样覆盖：
 
