@@ -11,6 +11,8 @@ SAMPLE_INDICES="${SAMPLE_INDICES:-}"
 BATCH_SIZE="${BATCH_SIZE:-1}"
 MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-80}"
 TEMPERATURE="${TEMPERATURE:-0}"
+TOP_P="${TOP_P:-0.95}"
+TOP_K="${TOP_K:-20}"
 CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
 
 export CUDA_VISIBLE_DEVICES
@@ -25,6 +27,8 @@ ARGS=(
     --enable_thinking False
     --max_new_tokens "$MAX_NEW_TOKENS"
     --temperature "$TEMPERATURE"
+    --top_p "$TOP_P"
+    --top_k "$TOP_K"
 )
 
 if [[ -n "$SAMPLE_INDICES" ]]; then

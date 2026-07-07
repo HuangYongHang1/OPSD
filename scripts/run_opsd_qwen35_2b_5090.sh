@@ -19,6 +19,10 @@ GRAD_ACCUM_STEPS="${GRAD_ACCUM_STEPS:-8}"
 GRADIENT_CHECKPOINTING="${GRADIENT_CHECKPOINTING:-True}"
 MAX_LENGTH="${MAX_LENGTH:-8192}"
 MAX_COMPLETION_LENGTH="${MAX_COMPLETION_LENGTH:-1024}"
+TEMPERATURE="${TEMPERATURE:-1.0}"
+TOP_P="${TOP_P:-1.0}"
+TOP_K="${TOP_K:-20}"
+PRESENCE_PENALTY="${PRESENCE_PENALTY:-2.0}"
 STUDENT_THINKING="${STUDENT_THINKING:-False}"
 TEACHER_THINKING="${TEACHER_THINKING:-True}"
 CLOSE_TEACHER_THINKING_BEFORE_SCORING="${CLOSE_TEACHER_THINKING_BEFORE_SCORING:-True}"
@@ -59,6 +63,7 @@ else
     echo "[WARN] wandb CLI not found; Python wandb will use WANDB_API_KEY if the package is installed."
 fi
 echo "[INFO] Trainer report_to=$REPORT_TO"
+echo "[INFO] Student rollout: max_new_tokens=$MAX_COMPLETION_LENGTH temperature=$TEMPERATURE top_p=$TOP_P top_k=$TOP_K presence_penalty=$PRESENCE_PENALTY"
 
 EXTRA_TRAINING_ARGS=()
 if [[ -n "${MAX_STEPS:-}" ]]; then
@@ -109,10 +114,10 @@ accelerate launch \
         q_proj k_proj v_proj o_proj \
         in_proj_qkv in_proj_z in_proj_b in_proj_a out_proj \
         gate_proj up_proj down_proj \
-    --temperature "${TEMPERATURE:-1.0}" \
-    --top_p "${TOP_P:-1.0}" \
-    --top_k "${TOP_K:-20}" \
-    --presence_penalty "${PRESENCE_PENALTY:-2.0}" \
+    --temperature "$TEMPERATURE" \
+    --top_p "$TOP_P" \
+    --top_k "$TOP_K" \
+    --presence_penalty "$PRESENCE_PENALTY" \
     --lmbda 1 \
     --fixed_teacher \
     --reason_first "$REASON_FIRST" \

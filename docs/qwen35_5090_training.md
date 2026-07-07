@@ -125,10 +125,10 @@ unset WANDB_MODE
 | `LORA_ALPHA` | `128` | LoRA alpha。 |
 | `MAX_LENGTH` | `8192` | collator 处理 prompt/context 的最大长度。 |
 | `MAX_COMPLETION_LENGTH` | `1024` | student rollout 的最大新 token 数。 |
-| `TEMPERATURE` | `1.0` | student generation temperature。 |
-| `TOP_P` | `1.0` | student generation top-p。 |
-| `TOP_K` | `20` | student generation top-k。 |
-| `PRESENCE_PENALTY` | `2.0` | generation presence penalty。 |
+| `TEMPERATURE` | `1.0` | student rollout 采样温度。摘要任务建议显式覆盖为 `0.5` 左右。 |
+| `TOP_P` | `1.0` | student rollout nucleus sampling。摘要任务建议显式覆盖为 `0.8` 左右。 |
+| `TOP_K` | `20` | student rollout top-k。摘要任务建议显式覆盖为 `10` 左右。 |
+| `PRESENCE_PENALTY` | `2.0` | vLLM 路径下的 presence penalty。当前 torch 训练路径基本不生效，但摘要任务建议显式覆盖为 `0`，避免未来切换生成路径时鼓励展开。 |
 | `TOP_K_LOSS` | `256` | 蒸馏损失只在 teacher top-k token 上计算，降低显存和计算压力。 |
 | `JSD_TOKEN_CLIP` | `1e-6` | 每个 token 的 JSD clipping，用于稳定训练。 |
 
@@ -234,6 +234,21 @@ GRAD_ACCUM_STEPS=2 \
 MAX_STEPS=50 \
 SAVE_STEPS=50 \
 RUN_CONFIG=qwen35_2b_opsd_lora_len512_test \
+OPSD_DATASET=/DATA_A/data/hyh/Qwen3.5/qwen3.5_segment_summary_2B_0309/train/train_0115_whole.jsonl \
+MODEL_DIR=/DATA_A/models/Qwen3.5-2B \
+OUTPUT_DIR=/DATA_B/hyh/opsd_outputs \
+bash scripts/run_opsd_qwen35_2b_5090.sh
+```
+
+对当前短摘要任务，更推荐把 rollout 采样也一起收紧：
+
+```bash
+MAX_COMPLETION_LENGTH=64 \
+TEMPERATURE=0.5 \
+TOP_P=0.8 \
+TOP_K=10 \
+PRESENCE_PENALTY=0 \
+RUN_CONFIG=summary_segment_exact_teacher_len64_t05_v1 \
 OPSD_DATASET=/DATA_A/data/hyh/Qwen3.5/qwen3.5_segment_summary_2B_0309/train/train_0115_whole.jsonl \
 MODEL_DIR=/DATA_A/models/Qwen3.5-2B \
 OUTPUT_DIR=/DATA_B/hyh/opsd_outputs \
