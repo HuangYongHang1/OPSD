@@ -44,7 +44,7 @@ class SelfDistillationDataCollator:
         self.input_field = input_field
         self.output_field = output_field
         self.teacher_thinking_prefill = (
-            "I have reviewed the exact target answer and will score only the final-answer tokens."
+            "I have reviewed the exact target answer and its end position, and will score only final-answer tokens."
         )
 
         # Prompt for reasoning about the solution before teaching
@@ -57,7 +57,7 @@ class SelfDistillationDataCollator:
         self.generic_reason_first_prompt = (
             "\n\nThe exact target answer above is the only correct final response. "
             "Do NOT use <think> tags. Do NOT analyze, paraphrase, or explain it. "
-            "Only remember the exact target answer privately.\n"
+            "Only remember the exact target answer and that it ends immediately after its final token.\n"
         )
 
         # Prompt for transitioning to teaching mode after reasoning
@@ -71,7 +71,7 @@ class SelfDistillationDataCollator:
         self.generic_transition_prompt = (
             "\n\nThe next assistant response must match the exact target answer above. "
             "Do not add, remove, rephrase, label, or explain anything. "
-            "Output exactly the target answer text and then stop:\n"
+            "Output exactly the target answer text, then emit the end-of-message token and stop:\n"
         )
 
         # Set padding side explicitly for consistency
@@ -185,13 +185,13 @@ class SelfDistillationDataCollator:
 
             reasoning_user_message = (
                 f"{original_prompt}\n\n"
-                f"Exact target answer:\n"
+                f"Exact target answer (the response ends immediately after this text):\n"
                 f"{reference_response}\n"
                 f"{self.generic_reason_first_prompt}"
             )
             teacher_user_message = (
                 f"{original_prompt}\n\n"
-                f"Exact target answer:\n"
+                f"Exact target answer (the response ends immediately after this text):\n"
                 f"{reference_response}\n"
                 f"{self.generic_transition_prompt}"
             )

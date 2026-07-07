@@ -239,10 +239,12 @@ Exact target answer:
 
 The next assistant response must match the exact target answer above.
 Do not add, remove, rephrase, label, or explain anything.
-Output exactly the target answer text and then stop:
+Output exactly the target answer text, then emit the end-of-message token and stop:
 ```
 
 这样 teacher 的分布应更贴近 `output`，减少“泛泛判断好摘要”的空间。
+
+随后又补充了 end-of-message 约束：teacher prompt 明确要求 target answer 后立即输出 end-of-message token 并停止；训练 loss mask 也保留每条 student completion 中第一个 EOS token 作为可学习的停止目标，避免模型只学答案内容但不学停止。
 
 对应提交：
 

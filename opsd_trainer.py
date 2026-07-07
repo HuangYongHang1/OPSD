@@ -1444,8 +1444,21 @@ class OPSDTrainer(SFTTrainer):
             actual_prompt_len = inputs["student_prompt_lengths_per_example"][i].item()
             labels[i, :actual_prompt_len] = -100  # Mask actual prompt
 
-        if self.processing_class.pad_token_id is not None:
-            labels[labels == self.processing_class.pad_token_id] = -100
+        pad_token_id = self.processing_class.pad_token_id
+        eos_token_id = self.processing_class.eos_token_id
+        if pad_token_id is not None:
+            if eos_token_id is not None and pad_token_id == eos_token_id:
+                # Qwen-style tokenizers often use the same id for padding and end-of-message.
+                # Keep the first generated EOS token as a learnable stop target, and mask
+                # only later EOS/pad tokens.
+                for i in range(labels.shape[0]):
+                    eos_positions = (labels[i, student_prompt_len:] == eos_token_id).nonzero(as_tuple=False)
+                    if eos_positions.numel() == 0:
+                        continue
+                    first_eos = student_prompt_len + eos_positions[0].item()
+                    labels[i, first_eos + 1 :] = -100
+            else:
+                labels[labels == pad_token_id] = -100
 
         inputs["labels"] = labels
 
