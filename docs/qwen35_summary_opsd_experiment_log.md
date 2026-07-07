@@ -222,7 +222,7 @@ PRESENCE_PENALTY=0
 这就是为什么仅靠纯 OPSD 长训仍然可能漂移。对当前任务，更稳的方案是引入 SFT loss：
 
 ```text
-loss = SFT loss(input -> output) + OPSD loss
+loss = SFT_LOSS_WEIGHT * SFT loss(input -> output + EOS) + OPSD_LOSS_WEIGHT * OPSD loss
 ```
 
 其中 SFT loss 锚定目标格式和停止位置，OPSD loss 再提供 teacher thinking 条件下的分布指导。
@@ -257,15 +257,17 @@ Output exactly the target answer text, then emit the end-of-message token and st
 建议重新开新 run，不要从已经漂移的旧 checkpoint 继续训：
 
 ```bash
-RUN_CONFIG=summary_segment_exact_teacher_len64_t05_v1
+RUN_CONFIG=summary_segment_sft_opsd_len64_t03_v1
 MAX_COMPLETION_LENGTH=64
-TEMPERATURE=0.5
+TEMPERATURE=0.3
 TOP_P=0.8
 TOP_K=10
 PRESENCE_PENALTY=0
+OPSD_LOSS_WEIGHT=1.0
+SFT_LOSS_WEIGHT=1.0
 STUDENT_THINKING=False
-TEACHER_THINKING=True
-CLOSE_TEACHER_THINKING_BEFORE_SCORING=True
+TEACHER_THINKING=False
+CLOSE_TEACHER_THINKING_BEFORE_SCORING=False
 REASON_FIRST=False
 ```
 
@@ -312,7 +314,9 @@ bash scripts/test_qwen35_summary_checkpoint.sh
 - 接入 W&B 指标。
 - 增加 checkpoint 快速评测脚本。
 - 将 teacher prompt 改成 exact target answer 风格。
+- 增加 `SFT loss + OPSD loss` 混合训练，让 `output + EOS` 直接参与 token-level 监督。
 
-仍建议补充的结构性修复：
+仍建议继续观察的风险：
 
-- 增加 `SFT loss + OPSD loss` 混合训练，让 `output` 直接参与 token-level 监督。
+- 如果 `sft_loss` 降低但 eval 仍然持续打满 `MAX_NEW_TOKENS`，需要进一步提高 `SFT_LOSS_WEIGHT` 或先做纯 SFT warmup。
+- 对短摘要任务，teacher thinking 可能没有收益，建议先用 `TEACHER_THINKING=False` 做稳定 baseline。

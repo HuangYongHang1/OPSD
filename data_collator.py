@@ -162,7 +162,7 @@ class SelfDistillationDataCollator:
                 f"\n{self.math_transition_prompt}\n"
                 f"Please reason step by step, and put your final answer within \\boxed{{}}."
             )
-            return student_prompt, reasoning_user_message, teacher_user_message, transition_text
+            return student_prompt, reasoning_user_message, teacher_user_message, transition_text, solution
 
         if self.input_field in feature and self.output_field in feature:
             source_prompt = str(feature[self.input_field])
@@ -196,7 +196,7 @@ class SelfDistillationDataCollator:
                 f"{self.generic_transition_prompt}"
             )
             transition_text = f"\n{self.generic_transition_prompt}"
-            return student_prompt, reasoning_user_message, teacher_user_message, transition_text
+            return student_prompt, reasoning_user_message, teacher_user_message, transition_text, reference_response
 
         available = ", ".join(sorted(feature.keys()))
         raise KeyError(
@@ -204,6 +204,63 @@ class SelfDistillationDataCollator:
             f"'{self.problem_field}'/'{self.solution_field}' or "
             f"'{self.input_field}'/'{self.output_field}'. Available fields: {available}"
         )
+
+    def _target_with_eos(self, response):
+        eos_token = self.tokenizer.eos_token or ""
+        if eos_token and not response.endswith(eos_token):
+            return f"{response}{eos_token}"
+        return response
+
+    def _build_sft_batch(self, student_prompts, reference_responses):
+        pad_token_id = self.tokenizer.pad_token_id
+        if pad_token_id is None:
+            pad_token_id = self.tokenizer.eos_token_id if self.tokenizer.eos_token_id is not None else 0
+
+        prompt_encoded = self.tokenizer(
+            student_prompts,
+            padding=False,
+            truncation=False,
+            add_special_tokens=False,
+        )
+        target_texts = [self._target_with_eos(response) for response in reference_responses]
+        target_encoded = self.tokenizer(
+            target_texts,
+            padding=False,
+            truncation=False,
+            add_special_tokens=False,
+        )
+
+        input_ids_list = []
+        labels_list = []
+        for prompt_ids, target_ids in zip(prompt_encoded["input_ids"], target_encoded["input_ids"]):
+            if len(target_ids) > self.max_length:
+                target_ids = target_ids[: self.max_length]
+
+            max_prompt_len = max(0, self.max_length - len(target_ids))
+            if len(prompt_ids) > max_prompt_len:
+                prompt_ids = prompt_ids[:max_prompt_len]
+
+            input_ids = prompt_ids + target_ids
+            labels = [-100] * len(prompt_ids) + target_ids
+            input_ids_list.append(input_ids)
+            labels_list.append(labels)
+
+        max_sft_len = max(len(input_ids) for input_ids in input_ids_list)
+        padded_input_ids = []
+        padded_attention_mask = []
+        padded_labels = []
+
+        for input_ids, labels in zip(input_ids_list, labels_list):
+            pad_len = max_sft_len - len(input_ids)
+            padded_input_ids.append(input_ids + [pad_token_id] * pad_len)
+            padded_attention_mask.append([1] * len(input_ids) + [0] * pad_len)
+            padded_labels.append(labels + [-100] * pad_len)
+
+        return {
+            "sft_input_ids": torch.tensor(padded_input_ids, dtype=torch.long),
+            "sft_attention_mask": torch.tensor(padded_attention_mask, dtype=torch.long),
+            "sft_labels": torch.tensor(padded_labels, dtype=torch.long),
+        }
 
     def __call__(self, features):
 
@@ -214,11 +271,19 @@ class SelfDistillationDataCollator:
         teacher_prompts = []
         teacher_reasoning_prompts = []  # NEW: for reason_first mode
         teacher_transition_texts = []
+        reference_responses = []
 
         for feature in features:
-            student_prompt, reasoning_user_message, teacher_user_message, transition_text = self._build_prompts(feature)
+            (
+                student_prompt,
+                reasoning_user_message,
+                teacher_user_message,
+                transition_text,
+                reference_response,
+            ) = self._build_prompts(feature)
             student_prompts.append(student_prompt)
             teacher_transition_texts.append(transition_text)
+            reference_responses.append(reference_response)
 
             if self.reason_first:
                 # Reasoning prompt: ask teacher to analyze the solution
@@ -270,6 +335,7 @@ class SelfDistillationDataCollator:
             # Keep individual lengths for proper masking
             "student_prompt_lengths_per_example": torch.tensor(student_prompt_lengths),
         }
+        result.update(self._build_sft_batch(student_prompts, reference_responses))
 
         if self.reason_first:
             # Tokenize reasoning prompts

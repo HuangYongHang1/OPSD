@@ -23,9 +23,11 @@ TEMPERATURE="${TEMPERATURE:-1.0}"
 TOP_P="${TOP_P:-1.0}"
 TOP_K="${TOP_K:-20}"
 PRESENCE_PENALTY="${PRESENCE_PENALTY:-2.0}"
+OPSD_LOSS_WEIGHT="${OPSD_LOSS_WEIGHT:-1.0}"
+SFT_LOSS_WEIGHT="${SFT_LOSS_WEIGHT:-1.0}"
 STUDENT_THINKING="${STUDENT_THINKING:-False}"
-TEACHER_THINKING="${TEACHER_THINKING:-True}"
-CLOSE_TEACHER_THINKING_BEFORE_SCORING="${CLOSE_TEACHER_THINKING_BEFORE_SCORING:-True}"
+TEACHER_THINKING="${TEACHER_THINKING:-False}"
+CLOSE_TEACHER_THINKING_BEFORE_SCORING="${CLOSE_TEACHER_THINKING_BEFORE_SCORING:-False}"
 REASON_FIRST="${REASON_FIRST:-False}"
 REAPPLY_CHAT_TEMPLATE_TO_INPUT="${REAPPLY_CHAT_TEMPLATE_TO_INPUT:-True}"
 
@@ -64,6 +66,7 @@ else
 fi
 echo "[INFO] Trainer report_to=$REPORT_TO"
 echo "[INFO] Student rollout: max_new_tokens=$MAX_COMPLETION_LENGTH temperature=$TEMPERATURE top_p=$TOP_P top_k=$TOP_K presence_penalty=$PRESENCE_PENALTY"
+echo "[INFO] Loss weights: opsd=$OPSD_LOSS_WEIGHT sft=$SFT_LOSS_WEIGHT"
 
 EXTRA_TRAINING_ARGS=()
 if [[ -n "${MAX_STEPS:-}" ]]; then
@@ -118,6 +121,8 @@ accelerate launch \
     --top_p "$TOP_P" \
     --top_k "$TOP_K" \
     --presence_penalty "$PRESENCE_PENALTY" \
+    --opsd_loss_weight "$OPSD_LOSS_WEIGHT" \
+    --sft_loss_weight "$SFT_LOSS_WEIGHT" \
     --lmbda 1 \
     --fixed_teacher \
     --reason_first "$REASON_FIRST" \

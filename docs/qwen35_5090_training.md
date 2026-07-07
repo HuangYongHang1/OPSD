@@ -96,7 +96,7 @@ SAVE_STEPS=500 \
 bash scripts/run_opsd_qwen35_2b_5090.sh
 ```
 
-W&B 的训练指标记录频率由 `LOGGING_STEPS` 控制，例如 `LOGGING_STEPS=10` 表示每 10 个 optimizer step 记录一次指标。默认会记录 `loss`、`on_policy_loss`、`grad_norm`、`learning_rate`、`epoch`，训练结束会记录 `train_loss`、`train_runtime`、`train_steps_per_second` 等。
+W&B 的训练指标记录频率由 `LOGGING_STEPS` 控制，例如 `LOGGING_STEPS=10` 表示每 10 个 optimizer step 记录一次指标。默认会记录 `loss`、`on_policy_loss`、`opsd_loss`、`sft_loss`、`mixed_loss`、`grad_norm`、`learning_rate`、`epoch`，训练结束会记录 `train_loss`、`train_runtime`、`train_steps_per_second` 等。
 
 online 模式下 W&B 会持续同步这些日志；如果看到 offline run，通常是因为 `WANDB_MODE=offline` 还留在环境变量里，需要执行：
 
@@ -129,6 +129,8 @@ unset WANDB_MODE
 | `TOP_P` | `1.0` | student rollout nucleus sampling。摘要任务建议显式覆盖为 `0.8` 左右。 |
 | `TOP_K` | `20` | student rollout top-k。摘要任务建议显式覆盖为 `10` 左右。 |
 | `PRESENCE_PENALTY` | `2.0` | vLLM 路径下的 presence penalty。当前 torch 训练路径基本不生效，但摘要任务建议显式覆盖为 `0`，避免未来切换生成路径时鼓励展开。 |
+| `OPSD_LOSS_WEIGHT` | `1.0` | OPSD 蒸馏损失权重。它让 student 在自己的 rollout 轨迹上贴近拥有参考答案上下文的 teacher 分布。 |
+| `SFT_LOSS_WEIGHT` | `1.0` | SFT 交叉熵损失权重。它直接训练 `input -> output + EOS`，用于锚定短摘要格式和停止位置。设为 `0` 可回到纯 OPSD。 |
 | `TOP_K_LOSS` | `256` | 蒸馏损失只在 teacher top-k token 上计算，降低显存和计算压力。 |
 | `JSD_TOKEN_CLIP` | `1e-6` | 每个 token 的 JSD clipping，用于稳定训练。 |
 
@@ -137,12 +139,21 @@ unset WANDB_MODE
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
 | `STUDENT_THINKING` | `False` | student rollout 不开启 thinking。 |
-| `TEACHER_THINKING` | `True` | teacher scoring prompt 开启 Qwen thinking mode。 |
-| `CLOSE_TEACHER_THINKING_BEFORE_SCORING` | `True` | 在 teacher-only 隐藏思考后补上 `</think>`，再对 student token 打分，降低格式错位风险。 |
+| `TEACHER_THINKING` | `False` | teacher scoring prompt 是否开启 Qwen thinking mode。短摘要任务建议先保持 `False`，做稳定 baseline。 |
+| `CLOSE_TEACHER_THINKING_BEFORE_SCORING` | `False` | 如果 teacher thinking 开启，在 teacher-only 隐藏思考后补上 `</think>`，再对 student token 打分。teacher non-thinking 时保持 `False`。 |
 | `REASON_FIRST` | `False` | 不让 teacher 额外显式生成 reasoning 文本；摘要任务建议保持关闭，避免把分析风格蒸馏给 student。 |
 | `REAPPLY_CHAT_TEMPLATE_TO_INPUT` | `True` | 重新解析 `input` 中的 ChatML，并套当前 Qwen3.5 tokenizer 的 chat template。 |
 
-当前推荐配置是：强 teacher 使用 thinking 模式指导 non-thinking student，但 student 的输出仍保持最终答案风格，不暴露 teacher 的思考过程。
+当前短摘要任务推荐先使用 non-thinking teacher 作为稳定 baseline：
+
+```bash
+STUDENT_THINKING=False
+TEACHER_THINKING=False
+CLOSE_TEACHER_THINKING_BEFORE_SCORING=False
+REASON_FIRST=False
+```
+
+teacher thinking 可以后续作为消融实验再打开；如果打开，应保持 `CLOSE_TEACHER_THINKING_BEFORE_SCORING=True` 和 `REASON_FIRST=False`。
 
 ## 数据集格式
 
@@ -152,7 +163,12 @@ unset WANDB_MODE
 {"input": "<|im_start|>user\n...\n<|im_end|><|im_start|>assistant\n", "output": "..."}
 ```
 
-代码默认读取 `input/output` 两列。`input` 会作为 student 看到的原始请求，`output` 会作为 teacher 看到的 exact target answer。teacher 侧会被要求按这个 target answer 的最终答案文本和 end-of-message 停止位置打分，不再添加“分析用户意图/解释 response strategy”的 meta prompt。
+代码默认读取 `input/output` 两列。`input` 会作为 student 看到的原始请求，`output` 会同时用于两条训练信号：
+
+- SFT loss：直接训练 `input -> output + EOS`，其中 prompt 和 padding 不参与 loss。
+- OPSD loss：teacher 看到 `output` 作为 exact target answer，然后在 student rollout tokens 上给分布指导。
+
+teacher 侧会被要求按这个 target answer 的最终答案文本和 end-of-message 停止位置打分，不再添加“分析用户意图/解释 response strategy”的 meta prompt。
 
 如果你的数据列名不同，可以这样覆盖：
 
@@ -248,6 +264,12 @@ TEMPERATURE=0.5 \
 TOP_P=0.8 \
 TOP_K=10 \
 PRESENCE_PENALTY=0 \
+OPSD_LOSS_WEIGHT=1.0 \
+SFT_LOSS_WEIGHT=1.0 \
+STUDENT_THINKING=False \
+TEACHER_THINKING=False \
+CLOSE_TEACHER_THINKING_BEFORE_SCORING=False \
+REASON_FIRST=False \
 RUN_CONFIG=summary_segment_exact_teacher_len64_t05_v1 \
 OPSD_DATASET=/DATA_A/data/hyh/Qwen3.5/qwen3.5_segment_summary_2B_0309/train/train_0115_whole.jsonl \
 MODEL_DIR=/DATA_A/models/Qwen3.5-2B \

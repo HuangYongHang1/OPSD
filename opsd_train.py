@@ -155,6 +155,17 @@ class CustomScriptArguments(ScriptArguments):
         default="output",
         metadata={"help": "Reference response field for SFT-style datasets."},
     )
+    opsd_loss_weight: float = field(
+        default=1.0,
+        metadata={"help": "Weight for the on-policy OPSD distillation loss."},
+    )
+    sft_loss_weight: float = field(
+        default=0.0,
+        metadata={
+            "help": "Weight for supervised cross-entropy loss on input/output targets. "
+            "This directly trains output tokens plus EOS and helps anchor short-answer format."
+        },
+    )
 
 
 def load_model_for_training(model_args, model_kwargs, model_loader: str = "auto"):
@@ -335,6 +346,8 @@ if __name__ == "__main__":
                 "top_k_loss": script_args.top_k_loss if script_args.top_k_loss > 0 else None,
                 "use_ema_teacher": script_args.use_ema_teacher,
                 "ema_decay": script_args.ema_decay if script_args.use_ema_teacher else None,
+                "opsd_loss_weight": script_args.opsd_loss_weight,
+                "sft_loss_weight": script_args.sft_loss_weight,
             },
         )
 
@@ -434,6 +447,8 @@ if __name__ == "__main__":
         solution_field=script_args.solution_field,
         input_field=script_args.input_field,
         output_field=script_args.output_field,
+        opsd_loss_weight=script_args.opsd_loss_weight,
+        sft_loss_weight=script_args.sft_loss_weight,
     )
 
     if training_args.eval_strategy != "no":

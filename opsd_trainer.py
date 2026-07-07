@@ -150,6 +150,8 @@ class OPSDTrainer(SFTTrainer):
         solution_field: str = "solution",
         input_field: str = "input",
         output_field: str = "output",
+        opsd_loss_weight: float = 1.0,
+        sft_loss_weight: float = 0.0,
     ):
         self.model_name_or_path = (
             model
@@ -219,7 +221,14 @@ class OPSDTrainer(SFTTrainer):
         self.jsd_token_clip = jsd_token_clip
         self.use_ema_teacher = use_ema_teacher
         self.ema_decay = ema_decay
+        self.opsd_loss_weight = opsd_loss_weight
+        self.sft_loss_weight = sft_loss_weight
         self._ema_params = None  # lazily initialized on first optimizer step
+
+        if self.opsd_loss_weight < 0 or self.sft_loss_weight < 0:
+            raise ValueError("opsd_loss_weight and sft_loss_weight must be non-negative.")
+        if self.opsd_loss_weight == 0 and self.sft_loss_weight == 0:
+            raise ValueError("At least one of opsd_loss_weight or sft_loss_weight must be greater than 0.")
 
         # Validate fixed_teacher option
         if self.fixed_teacher and peft_config is None:
@@ -248,6 +257,12 @@ class OPSDTrainer(SFTTrainer):
             print("Teacher will use the initial policy (base model without LoRA adapters)")
             print("Student will update with LoRA adapters")
             print(f"{'='*80}\n")
+
+        print(f"\n{'='*80}")
+        print("LOSS MIXING")
+        print(f"OPSD loss weight: {self.opsd_loss_weight}")
+        print(f"SFT loss weight: {self.sft_loss_weight}")
+        print(f"{'='*80}\n")
 
         if self.reason_first:
             print(f"\n{'='*80}")
@@ -754,7 +769,7 @@ class OPSDTrainer(SFTTrainer):
 
             # Policy gradient loss: -advantage * log π_student
             # Negative because we minimize loss (gradient descent), but want to maximize reward
-            loss = -(advantage * student_log_probs_sampled_masked).mean()
+            opsd_loss = -(advantage * student_log_probs_sampled_masked).mean()
 
             del (
                 student_log_probs_sampled,
@@ -764,7 +779,7 @@ class OPSDTrainer(SFTTrainer):
             )
         else:
             # Temperature is applied inside generalized_jsd_loss
-            loss = self.generalized_jsd_loss(
+            opsd_loss = self.generalized_jsd_loss(
                 student_logits=student_logits_for_loss,
                 teacher_logits=teacher_logits_for_loss,
                 labels=shifted_labels,
@@ -774,6 +789,41 @@ class OPSDTrainer(SFTTrainer):
                 token_clip=self.jsd_token_clip,
             )
             del student_logits_for_loss, teacher_logits_for_loss
+
+        sft_loss = None
+        if self.sft_loss_weight > 0:
+            required_sft_keys = {"sft_input_ids", "sft_attention_mask", "sft_labels"}
+            missing_sft_keys = required_sft_keys.difference(inputs)
+            if missing_sft_keys:
+                missing = ", ".join(sorted(missing_sft_keys))
+                raise KeyError(f"sft_loss_weight > 0 but SFT tensors are missing from the batch: {missing}")
+
+            outputs_sft = model(
+                input_ids=inputs["sft_input_ids"],
+                attention_mask=inputs["sft_attention_mask"],
+            )
+            sft_logits = outputs_sft.logits[:, :-1, :].contiguous()
+            sft_labels = inputs["sft_labels"][:, 1:].contiguous()
+            sft_loss = F.cross_entropy(
+                sft_logits.view(-1, sft_logits.size(-1)),
+                sft_labels.view(-1),
+                ignore_index=-100,
+            )
+            del outputs_sft, sft_logits, sft_labels
+
+        loss = self.opsd_loss_weight * opsd_loss
+        if sft_loss is not None:
+            loss = loss + self.sft_loss_weight * sft_loss
+
+        mode = "train" if model.training else "eval"
+        self._metrics[mode]["opsd_loss"].append(float(opsd_loss.detach()))
+        if sft_loss is not None:
+            self._metrics[mode]["sft_loss"].append(float(sft_loss.detach()))
+        self._metrics[mode]["mixed_loss"].append(float(loss.detach()))
+
+        del opsd_loss
+        if sft_loss is not None:
+            del sft_loss
 
         empty_cache()
 
