@@ -252,6 +252,37 @@ Output exactly the target answer text, then emit the end-of-message token and st
 
 注意：这仍不是纯 SFT。它只是让 teacher 条件分布更接近标准答案；如果 student rollout 本身偏离很远，OPSD 仍然是在偏离轨迹上做分布匹配。
 
+## 最新修正：Quality teacher guidance
+
+在 `SFT loss + OPSD loss` 稳住格式、EOS 和短摘要长度之后，下一阶段目标是提升人性化、可读性、流畅性和摘要美感。为此新增：
+
+```bash
+TEACHER_GUIDANCE_MODE=quality
+```
+
+该模式下，teacher 仍然看到 `output`，但不再要求 student 一字不差复制参考答案，而是把参考答案当作私有语义和覆盖度参考，偏向：
+
+- 忠实原文，不引入无根据内容。
+- 简洁，通常保持一句短摘要。
+- 自然、可读、流畅。
+- 不输出 label、解释、meta-commentary 或 thinking 文本。
+- 完成摘要后输出 end-of-message 并停止。
+
+如果要回到严格参考答案版本，可设置：
+
+```bash
+TEACHER_GUIDANCE_MODE=exact
+```
+
+同时将 Qwen3.5 摘要脚本默认 LoRA 从 `r=64, alpha=128` 调整为：
+
+```bash
+LORA_R=16
+LORA_ALPHA=32
+```
+
+这样保持 `alpha/r = 2` 不变，但降低 LoRA 容量，减少对训练集答案措辞的过拟合和风格漂移风险。
+
 ## 当前建议的下一轮实验配置
 
 建议重新开新 run，不要从已经漂移的旧 checkpoint 继续训：

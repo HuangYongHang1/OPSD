@@ -30,6 +30,9 @@ TEACHER_THINKING="${TEACHER_THINKING:-False}"
 CLOSE_TEACHER_THINKING_BEFORE_SCORING="${CLOSE_TEACHER_THINKING_BEFORE_SCORING:-False}"
 REASON_FIRST="${REASON_FIRST:-False}"
 REAPPLY_CHAT_TEMPLATE_TO_INPUT="${REAPPLY_CHAT_TEMPLATE_TO_INPUT:-True}"
+TEACHER_GUIDANCE_MODE="${TEACHER_GUIDANCE_MODE:-quality}"
+LORA_R="${LORA_R:-16}"
+LORA_ALPHA="${LORA_ALPHA:-32}"
 
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1,2,3}"
 export NCCL_P2P_DISABLE="${NCCL_P2P_DISABLE:-1}"
@@ -67,6 +70,8 @@ fi
 echo "[INFO] Trainer report_to=$REPORT_TO"
 echo "[INFO] Student rollout: max_new_tokens=$MAX_COMPLETION_LENGTH temperature=$TEMPERATURE top_p=$TOP_P top_k=$TOP_K presence_penalty=$PRESENCE_PENALTY"
 echo "[INFO] Loss weights: opsd=$OPSD_LOSS_WEIGHT sft=$SFT_LOSS_WEIGHT"
+echo "[INFO] Teacher guidance mode: $TEACHER_GUIDANCE_MODE"
+echo "[INFO] LoRA: r=$LORA_R alpha=$LORA_ALPHA"
 
 EXTRA_TRAINING_ARGS=()
 if [[ -n "${MAX_STEPS:-}" ]]; then
@@ -111,8 +116,8 @@ accelerate launch \
     --max_length "$MAX_LENGTH" \
     --beta 0 \
     --use_peft \
-    --lora_r "${LORA_R:-64}" \
-    --lora_alpha "${LORA_ALPHA:-128}" \
+    --lora_r "$LORA_R" \
+    --lora_alpha "$LORA_ALPHA" \
     --lora_target_modules \
         q_proj k_proj v_proj o_proj \
         in_proj_qkv in_proj_z in_proj_b in_proj_a out_proj \
@@ -130,6 +135,7 @@ accelerate launch \
     --teacher_thinking "$TEACHER_THINKING" \
     --close_teacher_thinking_before_scoring "$CLOSE_TEACHER_THINKING_BEFORE_SCORING" \
     --reapply_chat_template_to_input "$REAPPLY_CHAT_TEMPLATE_TO_INPUT" \
+    --teacher_guidance_mode "$TEACHER_GUIDANCE_MODE" \
     --top_k_loss "${TOP_K_LOSS:-256}" \
     --jsd_token_clip "${JSD_TOKEN_CLIP:-1e-6}" \
     --wandb_project "$WANDB_PROJECT" \

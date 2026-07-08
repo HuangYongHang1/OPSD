@@ -6,7 +6,7 @@
 scripts/run_opsd_qwen35_2b_5090.sh
 ```
 
-当前配置面向 4 张 RTX 5090，使用 DeepSpeed ZeRO-2、LoRA 训练、student non-thinking rollout，以及 teacher thinking scoring。
+当前配置面向 4 张 RTX 5090，使用 DeepSpeed ZeRO-2、LoRA 训练、student non-thinking rollout，以及 non-thinking teacher scoring。
 
 ## 快速开始
 
@@ -121,8 +121,8 @@ unset WANDB_MODE
 | `SAVE_STEPS` | `25` | checkpoint 保存间隔。正式长训建议用 `500` 或更大，避免 checkpoint 太多。 |
 | `LOGGING_STEPS` | `2` | 日志记录间隔。 |
 | `LEARNING_RATE` | `5e-6` | LoRA 学习率。 |
-| `LORA_R` | `64` | LoRA rank。 |
-| `LORA_ALPHA` | `128` | LoRA alpha。 |
+| `LORA_R` | `16` | LoRA rank。摘要任务默认使用较小 rank，降低过拟合和风格漂移风险。 |
+| `LORA_ALPHA` | `32` | LoRA alpha。默认保持 `alpha/r = 2`，和旧的 `r=64, alpha=128` 缩放比例一致。 |
 | `MAX_LENGTH` | `8192` | collator 处理 prompt/context 的最大长度。 |
 | `MAX_COMPLETION_LENGTH` | `1024` | student rollout 的最大新 token 数。 |
 | `TEMPERATURE` | `1.0` | student rollout 采样温度。摘要任务建议显式覆盖为 `0.5` 左右。 |
@@ -131,6 +131,7 @@ unset WANDB_MODE
 | `PRESENCE_PENALTY` | `2.0` | vLLM 路径下的 presence penalty。当前 torch 训练路径基本不生效，但摘要任务建议显式覆盖为 `0`，避免未来切换生成路径时鼓励展开。 |
 | `OPSD_LOSS_WEIGHT` | `1.0` | OPSD 蒸馏损失权重。它让 student 在自己的 rollout 轨迹上贴近拥有参考答案上下文的 teacher 分布。 |
 | `SFT_LOSS_WEIGHT` | `1.0` | SFT 交叉熵损失权重。它直接训练 `input -> output + EOS`，用于锚定短摘要格式和停止位置。设为 `0` 可回到纯 OPSD。 |
+| `TEACHER_GUIDANCE_MODE` | `quality` | teacher 使用参考答案的方式。`exact` 要求贴近标准答案原文；`quality` 把标准答案当私有语义参考，更偏向忠实、简洁、自然、可读、有美感的摘要。 |
 | `TOP_K_LOSS` | `256` | 蒸馏损失只在 teacher top-k token 上计算，降低显存和计算压力。 |
 | `JSD_TOKEN_CLIP` | `1e-6` | 每个 token 的 JSD clipping，用于稳定训练。 |
 
@@ -166,9 +167,9 @@ teacher thinking 可以后续作为消融实验再打开；如果打开，应保
 代码默认读取 `input/output` 两列。`input` 会作为 student 看到的原始请求，`output` 会同时用于两条训练信号：
 
 - SFT loss：直接训练 `input -> output + EOS`，其中 prompt 和 padding 不参与 loss。
-- OPSD loss：teacher 看到 `output` 作为 exact target answer，然后在 student rollout tokens 上给分布指导。
+- OPSD loss：teacher 看到 `output` 作为私有参考答案，然后在 student rollout tokens 上给分布指导。
 
-teacher 侧会被要求按这个 target answer 的最终答案文本和 end-of-message 停止位置打分，不再添加“分析用户意图/解释 response strategy”的 meta prompt。
+默认 `TEACHER_GUIDANCE_MODE=quality` 时，teacher 不要求 student 一字不差复制 `output`，而是偏向忠实、简洁、自然、可读、有美感的摘要；如果要复现实验中的严格 target-answer 版本，可以设置 `TEACHER_GUIDANCE_MODE=exact`。
 
 如果你的数据列名不同，可以这样覆盖：
 
@@ -265,12 +266,15 @@ TOP_P=0.8 \
 TOP_K=10 \
 PRESENCE_PENALTY=0 \
 OPSD_LOSS_WEIGHT=1.0 \
-SFT_LOSS_WEIGHT=1.0 \
+SFT_LOSS_WEIGHT=0.3 \
+TEACHER_GUIDANCE_MODE=quality \
+LORA_R=16 \
+LORA_ALPHA=32 \
 STUDENT_THINKING=False \
 TEACHER_THINKING=False \
 CLOSE_TEACHER_THINKING_BEFORE_SCORING=False \
 REASON_FIRST=False \
-RUN_CONFIG=summary_segment_exact_teacher_len64_t05_v1 \
+RUN_CONFIG=summary_segment_quality_teacher_r16_len64_v1 \
 OPSD_DATASET=/DATA_A/data/hyh/Qwen3.5/qwen3.5_segment_summary_2B_0309/train/train_0115_whole.jsonl \
 MODEL_DIR=/DATA_A/models/Qwen3.5-2B \
 OUTPUT_DIR=/DATA_B/hyh/opsd_outputs \

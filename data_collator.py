@@ -31,6 +31,7 @@ class SelfDistillationDataCollator:
         solution_field="solution",
         input_field="input",
         output_field="output",
+        teacher_guidance_mode="exact",
     ):
         self.tokenizer = tokenizer
         self.max_length = max_length
@@ -43,8 +44,12 @@ class SelfDistillationDataCollator:
         self.solution_field = solution_field
         self.input_field = input_field
         self.output_field = output_field
+        self.teacher_guidance_mode = teacher_guidance_mode.lower()
+        if self.teacher_guidance_mode not in {"exact", "quality"}:
+            raise ValueError("teacher_guidance_mode must be either 'exact' or 'quality'.")
         self.teacher_thinking_prefill = (
-            "I have reviewed the exact target answer and its end position, and will score only final-answer tokens."
+            "I have reviewed the private reference answer, quality preferences, and end position. "
+            "I will score only final-answer tokens."
         )
 
         # Prompt for reasoning about the solution before teaching
@@ -68,10 +73,17 @@ class SelfDistillationDataCollator:
             "Think step by step, explore different approaches, and don't be afraid to backtrack "
             "or reconsider if something doesn't work out:\n"
         )
-        self.generic_transition_prompt = (
+        self.generic_exact_transition_prompt = (
             "\n\nThe next assistant response must match the exact target answer above. "
             "Do not add, remove, rephrase, label, or explain anything. "
             "Output exactly the target answer text, then emit the end-of-message token and stop:\n"
+        )
+        self.generic_quality_transition_prompt = (
+            "\n\nUse the reference answer as private guidance for meaning and coverage, not as text to copy. "
+            "Prefer the next assistant response that is faithful to the source, concise, natural, human-readable, "
+            "and polished. It should keep the same final-answer-only format: one brief summary when possible, "
+            "no labels, no explanation, no meta-commentary, and no thinking text. "
+            "After a complete summary, emit the end-of-message token and stop:\n"
         )
 
         # Set padding side explicitly for consistency
@@ -84,6 +96,7 @@ class SelfDistillationDataCollator:
             f"{self.close_teacher_thinking_before_scoring}"
         )
         print(f"[DataCollator] Reapply chat template to input: {self.reapply_chat_template_to_input}")
+        print(f"[DataCollator] Teacher guidance mode: {self.teacher_guidance_mode}")
         print(
             "[DataCollator] Supported schemas: "
             f"{self.problem_field}/{self.solution_field} and {self.input_field}/{self.output_field}"
@@ -183,19 +196,34 @@ class SelfDistillationDataCollator:
                     enable_thinking=self.student_thinking,
                 )
 
-            reasoning_user_message = (
-                f"{original_prompt}\n\n"
-                f"Exact target answer (the response ends immediately after this text):\n"
-                f"{reference_response}\n"
-                f"{self.generic_reason_first_prompt}"
-            )
-            teacher_user_message = (
-                f"{original_prompt}\n\n"
-                f"Exact target answer (the response ends immediately after this text):\n"
-                f"{reference_response}\n"
-                f"{self.generic_transition_prompt}"
-            )
-            transition_text = f"\n{self.generic_transition_prompt}"
+            if self.teacher_guidance_mode == "quality":
+                reasoning_user_message = (
+                    f"{original_prompt}\n\n"
+                    f"Private reference answer (use for meaning and coverage, not exact wording):\n"
+                    f"{reference_response}\n"
+                    f"{self.generic_quality_transition_prompt}"
+                )
+                teacher_user_message = (
+                    f"{original_prompt}\n\n"
+                    f"Private reference answer (use for meaning and coverage, not exact wording):\n"
+                    f"{reference_response}\n"
+                    f"{self.generic_quality_transition_prompt}"
+                )
+                transition_text = f"\n{self.generic_quality_transition_prompt}"
+            else:
+                reasoning_user_message = (
+                    f"{original_prompt}\n\n"
+                    f"Exact target answer (the response ends immediately after this text):\n"
+                    f"{reference_response}\n"
+                    f"{self.generic_reason_first_prompt}"
+                )
+                teacher_user_message = (
+                    f"{original_prompt}\n\n"
+                    f"Exact target answer (the response ends immediately after this text):\n"
+                    f"{reference_response}\n"
+                    f"{self.generic_exact_transition_prompt}"
+                )
+                transition_text = f"\n{self.generic_exact_transition_prompt}"
             return student_prompt, reasoning_user_message, teacher_user_message, transition_text, reference_response
 
         available = ", ".join(sorted(feature.keys()))

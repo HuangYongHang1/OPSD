@@ -152,6 +152,7 @@ class OPSDTrainer(SFTTrainer):
         output_field: str = "output",
         opsd_loss_weight: float = 1.0,
         sft_loss_weight: float = 0.0,
+        teacher_guidance_mode: str = "exact",
     ):
         self.model_name_or_path = (
             model
@@ -190,6 +191,7 @@ class OPSDTrainer(SFTTrainer):
                 solution_field=solution_field,
                 input_field=input_field,
                 output_field=output_field,
+                teacher_guidance_mode=teacher_guidance_mode,
             )
 
         super().__init__(

@@ -155,6 +155,14 @@ class CustomScriptArguments(ScriptArguments):
         default="output",
         metadata={"help": "Reference response field for SFT-style datasets."},
     )
+    teacher_guidance_mode: str = field(
+        default="exact",
+        metadata={
+            "help": "Teacher prompt style for input/output datasets. "
+            "Use 'exact' to prefer the reference wording, or 'quality' to use the reference as "
+            "private meaning guidance while preferring faithful, concise, natural summaries."
+        },
+    )
     opsd_loss_weight: float = field(
         default=1.0,
         metadata={"help": "Weight for the on-policy OPSD distillation loss."},
@@ -348,6 +356,7 @@ if __name__ == "__main__":
                 "ema_decay": script_args.ema_decay if script_args.use_ema_teacher else None,
                 "opsd_loss_weight": script_args.opsd_loss_weight,
                 "sft_loss_weight": script_args.sft_loss_weight,
+                "teacher_guidance_mode": script_args.teacher_guidance_mode,
             },
         )
 
@@ -449,6 +458,7 @@ if __name__ == "__main__":
         output_field=script_args.output_field,
         opsd_loss_weight=script_args.opsd_loss_weight,
         sft_loss_weight=script_args.sft_loss_weight,
+        teacher_guidance_mode=script_args.teacher_guidance_mode,
     )
 
     if training_args.eval_strategy != "no":
