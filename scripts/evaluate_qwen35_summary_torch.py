@@ -156,6 +156,7 @@ def main():
     parser.add_argument("--checkpoint_dir", "--adapter", dest="checkpoint_dir", default=None, help="LoRA checkpoint directory.")
     parser.add_argument("--data_file", required=True, help="Local input/output JSONL file.")
     parser.add_argument("--output_file", default=None, help="Optional JSONL file for predictions.")
+    parser.add_argument("--metrics_file", default=None, help="Optional JSON file for aggregate metrics.")
     parser.add_argument("--model_loader", default="image_text_to_text", choices=["causal_lm", "image_text_to_text"])
     parser.add_argument("--input_field", default="input")
     parser.add_argument("--output_field", default="output")
@@ -163,6 +164,12 @@ def main():
     parser.add_argument("--sample_indices", default=None, help="Comma-separated 0-based indices, e.g. 0,10,100.")
     parser.add_argument("--start_index", type=int, default=0)
     parser.add_argument("--stride", type=int, default=1)
+    parser.add_argument(
+        "--print_limit",
+        type=int,
+        default=None,
+        help="Maximum number of per-sample predictions to print. Set 0 to print only aggregate metrics.",
+    )
     parser.add_argument("--batch_size", type=int, default=1)
     parser.add_argument("--enable_thinking", default="False")
     parser.add_argument("--max_new_tokens", type=int, default=80)
@@ -248,11 +255,20 @@ def main():
 
     flagged = sum(1 for row in rows if row["format_flags"])
     avg_tokens = sum(row["prediction_tokens"] for row in rows) / len(rows)
+    metrics = {
+        "num_samples": len(rows),
+        "average_prediction_tokens": avg_tokens,
+        "format_flagged_samples": flagged,
+        "format_flagged_ratio": flagged / len(rows),
+        "max_prediction_tokens": max(row["prediction_tokens"] for row in rows),
+        "min_prediction_tokens": min(row["prediction_tokens"] for row in rows),
+    }
     print(f"\nEvaluated {len(rows)} samples")
     print(f"Average prediction tokens: {avg_tokens:.1f}")
     print(f"Format-flagged samples: {flagged}/{len(rows)}")
 
-    for row in rows:
+    rows_to_print = rows if args.print_limit is None else rows[: max(0, args.print_limit)]
+    for row in rows_to_print:
         print("\n" + "=" * 88)
         print(f"Index: {row['index']} | tokens: {row['prediction_tokens']} | flags: {row['format_flags'] or 'none'}")
         print("\nPrompt:")
@@ -269,6 +285,14 @@ def main():
             for row in rows:
                 handle.write(json.dumps(row, ensure_ascii=False) + "\n")
         print(f"\nSaved predictions to: {output_path}")
+
+    if args.metrics_file:
+        metrics_path = Path(args.metrics_file)
+        metrics_path.parent.mkdir(parents=True, exist_ok=True)
+        with metrics_path.open("w", encoding="utf-8") as handle:
+            json.dump(metrics, handle, ensure_ascii=False, indent=2)
+            handle.write("\n")
+        print(f"Saved metrics to: {metrics_path}")
 
 
 if __name__ == "__main__":

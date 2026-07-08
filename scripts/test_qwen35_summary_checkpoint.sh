@@ -5,9 +5,11 @@ MODEL_DIR="${MODEL_DIR:-/DATA_A/models/Qwen3.5-2B}"
 CHECKPOINT_DIR="${CHECKPOINT_DIR:-/DATA_B/hyh/opsd_outputs/summary_segment_0706/qwen3.5_2b_opsd_summary_segment_v1/checkpoint-500}"
 DATA_FILE="${DATA_FILE:-/DATA_A/data/hyh/Qwen3.5/qwen3.5_segment_summary_2B_0309/train/train_0115_whole.jsonl}"
 OUTPUT_FILE="${OUTPUT_FILE:-${CHECKPOINT_DIR%/}/summary_eval.jsonl}"
+METRICS_FILE="${METRICS_FILE:-${OUTPUT_FILE%.*}_metrics.json}"
 
 NUM_SAMPLES="${NUM_SAMPLES:-8}"
 SAMPLE_INDICES="${SAMPLE_INDICES:-}"
+PRINT_LIMIT="${PRINT_LIMIT:-}"
 BATCH_SIZE="${BATCH_SIZE:-1}"
 MAX_NEW_TOKENS="${MAX_NEW_TOKENS:-80}"
 TEMPERATURE="${TEMPERATURE:-0}"
@@ -22,6 +24,7 @@ ARGS=(
     --checkpoint_dir "$CHECKPOINT_DIR"
     --data_file "$DATA_FILE"
     --output_file "$OUTPUT_FILE"
+    --metrics_file "$METRICS_FILE"
     --num_samples "$NUM_SAMPLES"
     --batch_size "$BATCH_SIZE"
     --enable_thinking False
@@ -30,6 +33,10 @@ ARGS=(
     --top_p "$TOP_P"
     --top_k "$TOP_K"
 )
+
+if [[ -n "$PRINT_LIMIT" ]]; then
+    ARGS+=(--print_limit "$PRINT_LIMIT")
+fi
 
 if [[ -n "$SAMPLE_INDICES" ]]; then
     ARGS+=(--sample_indices "$SAMPLE_INDICES")
