@@ -80,9 +80,13 @@ class SelfDistillationDataCollator:
         )
         self.generic_quality_transition_prompt = (
             "\n\nUse the reference answer as private guidance for meaning and coverage, not as text to copy. "
-            "Prefer the next assistant response that is faithful to the source, concise, natural, human-readable, "
-            "and polished. It should keep the same final-answer-only format: one brief summary when possible, "
-            "no labels, no explanation, no meta-commentary, and no thinking text. "
+            "Prefer the next assistant response that reads like a careful human editor wrote it: faithful to the "
+            "source, concise, natural, fluent, and polished. Do not mechanically include every detail or bullet; "
+            "identify the central news point, preserve essential names, numbers, causes, and contrasts, and omit "
+            "minor details that make the sentence bulky. Avoid awkward clause stacking, vague openings, and "
+            "generic phrases such as 'the text is about'. Use one smooth, publication-quality sentence when "
+            "possible. Keep the same final-answer-only format: no labels, no explanation, no meta-commentary, "
+            "and no thinking text. "
             "After a complete summary, emit the end-of-message token and stop:\n"
         )
 

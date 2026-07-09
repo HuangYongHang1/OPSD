@@ -264,7 +264,10 @@ TEACHER_GUIDANCE_MODE=quality
 
 - 忠实原文，不引入无根据内容。
 - 简洁，通常保持一句短摘要。
-- 自然、可读、流畅。
+- 自然、可读、流畅，有编辑感。
+- 抓主线而不是机械覆盖所有 bullet。
+- 保留核心人物、数字、因果和转折，删去让句子臃肿的次要细节。
+- 避免生硬从句堆叠、空泛开头和 `the text is about` 这类模板表达。
 - 不输出 label、解释、meta-commentary 或 thinking 文本。
 - 完成摘要后输出 end-of-message 并停止。
 
