@@ -79,14 +79,16 @@ class SelfDistillationDataCollator:
             "Output exactly the target answer text, then emit the end-of-message token and stop:\n"
         )
         self.generic_quality_transition_prompt = (
-            "\n\nUse the reference answer as private guidance for meaning and coverage, not as text to copy. "
-            "Prefer the next assistant response that reads like a careful human editor wrote it: faithful to the "
-            "source, concise, natural, fluent, and polished. Do not mechanically include every detail or bullet; "
-            "identify the central news point, preserve essential names, numbers, causes, and contrasts, and omit "
-            "minor details that make the sentence bulky. Avoid awkward clause stacking, vague openings, and "
-            "generic phrases such as 'the text is about'. Use one smooth, publication-quality sentence when "
-            "possible. Keep the same final-answer-only format: no labels, no explanation, no meta-commentary, "
-            "and no thinking text. "
+            "\n\nUse the reference answer as a private semantic baseline, not a ceiling and not text to copy. "
+            "Prefer the next assistant response when it improves on the reference with a more precise, graceful, "
+            "publication-quality summary. Highest priority is factual precision: preserve who did what to whom, "
+            "names, numbers, dates, locations, causal links, and contrasts; never swap subjects or pronouns, "
+            "and never add unsupported facts. Then prefer editorial synthesis: identify the central news point "
+            "instead of mechanically covering every bullet, keep only details that sharpen the main idea, and "
+            "omit details that make the sentence bulky. Prefer one smooth, natural, fluent sentence with strong "
+            "verbs and clear relationships. Avoid awkward clause stacking, vague openings, and generic phrases "
+            "such as 'the text is about'. Keep the same final-answer-only format: no labels, no explanation, "
+            "no meta-commentary, and no thinking text. "
             "After a complete summary, emit the end-of-message token and stop:\n"
         )
 
