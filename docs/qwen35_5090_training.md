@@ -131,7 +131,7 @@ unset WANDB_MODE
 | `PRESENCE_PENALTY` | `2.0` | vLLM 路径下的 presence penalty。当前 torch 训练路径基本不生效，但摘要任务建议显式覆盖为 `0`，避免未来切换生成路径时鼓励展开。 |
 | `OPSD_LOSS_WEIGHT` | `1.0` | OPSD 蒸馏损失权重。它让 student 在自己的 rollout 轨迹上贴近拥有参考答案上下文的 teacher 分布。 |
 | `SFT_LOSS_WEIGHT` | `1.0` | SFT 交叉熵损失权重。它直接训练 `input -> output + EOS`，用于锚定短摘要格式和停止位置。设为 `0` 可回到纯 OPSD。 |
-| `TEACHER_GUIDANCE_MODE` | `quality` | teacher 使用参考答案的方式。`exact` 要求贴近标准答案原文；`quality` 把标准答案当私有语义 baseline，而不是上限，更偏向事实精确、自然、可读、有编辑感的摘要。 |
+| `TEACHER_GUIDANCE_MODE` | `quality` | teacher 使用参考答案的方式。`exact` 要求贴近标准答案原文；`quality` 把标准答案当私有语义 baseline，但只允许在强事实和格式约束内做更自然、更可读的改写。 |
 | `TOP_K_LOSS` | `256` | 蒸馏损失只在 teacher top-k token 上计算，降低显存和计算压力。 |
 | `JSD_TOKEN_CLIP` | `1e-6` | 每个 token 的 JSD clipping，用于稳定训练。 |
 
@@ -169,7 +169,16 @@ teacher thinking 可以后续作为消融实验再打开；如果打开，应保
 - SFT loss：直接训练 `input -> output + EOS`，其中 prompt 和 padding 不参与 loss。
 - OPSD loss：teacher 看到 `output` 作为私有参考答案，然后在 student rollout tokens 上给分布指导。
 
-默认 `TEACHER_GUIDANCE_MODE=quality` 时，teacher 不要求 student 一字不差复制 `output`，而是把标准答案当语义 baseline，不当上限。它会更明确地偏好事实精确、抓主线、保留关键人物/数字/因果/转折、避免机械覆盖所有 bullet、避免生硬堆从句，并鼓励在忠实前提下写出比参考答案更自然、更有编辑感的摘要。如果要复现实验中的严格 target-answer 版本，可以设置 `TEACHER_GUIDANCE_MODE=exact`。
+默认 `TEACHER_GUIDANCE_MODE=quality` 时，teacher 不要求 student 一字不差复制 `output`，而是把标准答案当语义 baseline，不当上限。但这不是鼓励自由发挥，而是“强约束下的质量改写”：
+
+- 事实优先：保留人物、数字、时间、地点、因果、转折、语气和不确定性，不允许新增原文或参考答案没有的时间、原因、评价、例子或建议。
+- 匹配任务类型：短问答或短参考答案必须保持短而直接，不能把 `You sure?` 这类输入改写成“这个短语是什么意思”的解释。
+- 长度贴近参考答案：长 transcript 可以更好地综合主线，但不应为了显得高级而扩写。
+- 参考答案已经好时，允许接近复制；不要为了改写而改写。
+- 输出只能是最终摘要：不能有 `Summary:`、`Final Answer:`、解释、澄清问题、短语分析、meta-commentary 或 thinking 文本。
+- 摘要完成后应立即输出 EOS 停止。
+
+如果要复现实验中的严格 target-answer 版本，可以设置 `TEACHER_GUIDANCE_MODE=exact`。
 
 如果你的数据列名不同，可以这样覆盖：
 
