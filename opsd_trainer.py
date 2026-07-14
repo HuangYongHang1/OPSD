@@ -152,6 +152,7 @@ class OPSDTrainer(SFTTrainer):
         output_field: str = "output",
         draft_field: str = "sft_draft",
         corrector_mode: bool = False,
+        teacher_draft_field: str = "",
         opsd_loss_weight: float = 1.0,
         sft_loss_weight: float = 0.0,
         teacher_guidance_mode: str = "exact",
@@ -167,6 +168,7 @@ class OPSDTrainer(SFTTrainer):
         self.output_field = output_field
         self.draft_field = draft_field
         self.corrector_mode = corrector_mode
+        self.teacher_draft_field = teacher_draft_field
         self.model_revision = getattr(args, "student_model_revision", None)
         if isinstance(model, str) and self.model_revision is not None:
             args.model_init_kwargs = args.model_init_kwargs or {}
@@ -197,6 +199,7 @@ class OPSDTrainer(SFTTrainer):
                 output_field=output_field,
                 draft_field=draft_field,
                 corrector_mode=corrector_mode,
+                teacher_draft_field=teacher_draft_field,
                 teacher_guidance_mode=teacher_guidance_mode,
             )
 
@@ -273,6 +276,7 @@ class OPSDTrainer(SFTTrainer):
         print(f"Corrector mode: {self.corrector_mode}")
         if self.corrector_mode:
             print(f"Draft field: {self.draft_field}")
+        print(f"Teacher draft field: {self.teacher_draft_field or '<disabled>'}")
         print(f"{'='*80}\n")
 
         if self.reason_first:

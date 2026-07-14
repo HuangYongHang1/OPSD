@@ -132,6 +132,7 @@ unset WANDB_MODE
 | `OPSD_LOSS_WEIGHT` | `1.0` | OPSD 蒸馏损失权重。它让 student 在自己的 rollout 轨迹上贴近拥有参考答案上下文的 teacher 分布。 |
 | `SFT_LOSS_WEIGHT` | `1.0` | SFT 交叉熵损失权重。它直接训练 `input -> output + EOS`，用于锚定短摘要格式和停止位置。设为 `0` 可回到纯 OPSD。 |
 | `TEACHER_GUIDANCE_MODE` | `quality` | teacher 使用参考答案的方式。`exact` 要求贴近标准答案原文；`quality` 把标准答案当私有语义 baseline，但只允许在强事实和格式约束内做更自然、更可读的改写。 |
+| `TEACHER_DRAFT_FIELD` | 空 | 可选的 teacher-only SFT 初稿字段。设置为 `sft_draft` 后，student 仍然只看到 `input`，teacher 私有看到 `sft_draft + output`，用于把 SFT 初稿作为风格/格式/常见错误的比较基线。 |
 | `CORRECTOR_MODE` | `False` | 是否启用 SFT 初稿纠错模式。开启后 student 看到 `input + sft_draft`，目标仍是 `output`，用于把 OPSD 训练成 SFT 摘要的轻修正器。 |
 | `DRAFT_FIELD` | `sft_draft` | corrector 模式下读取 SFT 初稿的字段名。 |
 | `TOP_K_LOSS` | `256` | 蒸馏损失只在 teacher top-k token 上计算，降低显存和计算压力。 |
@@ -181,6 +182,42 @@ teacher thinking 可以后续作为消融实验再打开；如果打开，应保
 - 摘要完成后应立即输出 EOS 停止。
 
 如果要复现实验中的严格 target-answer 版本，可以设置 `TEACHER_GUIDANCE_MODE=exact`。
+
+### Teacher-only SFT 初稿基线
+
+如果最终推理时仍然只有 `input`，但训练时想让 teacher 参考 SFT 初稿的风格和常见错误，可以设置：
+
+```bash
+CORRECTOR_MODE=False
+TEACHER_DRAFT_FIELD=sft_draft
+```
+
+此时数据集每行需要包含：
+
+```json
+{
+  "input": "<|im_start|>user\nPlease briefly summarize ...<|im_end|><|im_start|>assistant\n",
+  "sft_draft": "SFT model's current summary draft.",
+  "output": "Reference or better corrected summary."
+}
+```
+
+训练时：
+
+```text
+student 看到：input
+student rollout：当前摘要
+teacher 私有看到：input + sft_draft + output + student rollout
+teacher 作用：用 sft_draft 作为风格/格式/简洁度 baseline，用 output 作为事实权威，指导 student 的 token 分布
+```
+
+推理时仍然是：
+
+```text
+input -> final summary
+```
+
+这不会造成训练/推理格式错位，因为 `sft_draft` 只给 teacher 看，不给 student 看。它适合“单模型部署，但训练时让 teacher 参考 SFT baseline”的实验。
 
 ### SFT 初稿纠错模式
 

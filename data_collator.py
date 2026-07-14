@@ -13,6 +13,7 @@ class SelfDistillationDataCollator:
     Supported dataset schemas:
     - Math OPSD: {"problem": "...", "solution": "..."}
     - SFT-style: {"input": "<chat prompt ending in assistant prefix>", "output": "..."}
+    - Teacher-draft style: {"input": "...", "sft_draft": "...", "output": "..."} with teacher_draft_field set
     - Corrector-style: {"input": "...", "sft_draft": "...", "output": "..."}
 
     To enable batch-level operations (like original GKD), we pad prompts to the same length
@@ -34,6 +35,7 @@ class SelfDistillationDataCollator:
         output_field="output",
         draft_field="sft_draft",
         corrector_mode=False,
+        teacher_draft_field="",
         teacher_guidance_mode="exact",
     ):
         self.tokenizer = tokenizer
@@ -49,6 +51,7 @@ class SelfDistillationDataCollator:
         self.output_field = output_field
         self.draft_field = draft_field
         self.corrector_mode = corrector_mode
+        self.teacher_draft_field = teacher_draft_field
         self.teacher_guidance_mode = teacher_guidance_mode.lower()
         if self.teacher_guidance_mode not in {"exact", "quality"}:
             raise ValueError("teacher_guidance_mode must be either 'exact' or 'quality'.")
@@ -116,6 +119,15 @@ class SelfDistillationDataCollator:
             "question, no phrase analysis, no meta-commentary, and no thinking text. "
             "After a complete corrected summary, emit the end-of-message token and stop:\n"
         )
+        self.teacher_draft_guidance_text = (
+            "Use this SFT baseline as a teacher-only style, format, and brevity reference. The student cannot "
+            "see it, so do not require the next response to explicitly edit it. When scoring the student's "
+            "next response, prefer outputs that preserve the baseline's useful concision and naturalness while "
+            "fixing any factual, logical, reference, pronoun, or coverage errors using the private reference. "
+            "Penalize outputs that are worse than the baseline, overlong, labeled, explanatory, repetitive, or "
+            "unsupported. The private reference remains the factual authority; the SFT baseline is only a "
+            "comparison point for style and common failure modes.\n"
+        )
 
         # Set padding side explicitly for consistency
         print(f"[DataCollator] Original padding_side: {self.tokenizer.padding_side}")
@@ -131,11 +143,13 @@ class SelfDistillationDataCollator:
         print(f"[DataCollator] Corrector mode: {self.corrector_mode}")
         if self.corrector_mode:
             print(f"[DataCollator] Draft field: {self.draft_field}")
+        print(f"[DataCollator] Teacher draft field: {self.teacher_draft_field or '<disabled>'}")
         print(
             "[DataCollator] Supported schemas: "
             f"{self.problem_field}/{self.solution_field}, "
             f"{self.input_field}/{self.output_field}, and "
-            f"{self.input_field}/{self.draft_field}/{self.output_field} when corrector_mode=True"
+            f"{self.input_field}/{self.draft_field}/{self.output_field} when corrector_mode=True "
+            f"or teacher_draft_field is set"
         )
 
     def _maybe_close_teacher_thinking(self, teacher_prompt):
@@ -189,6 +203,22 @@ class SelfDistillationDataCollator:
             "explanation, clarification question, or thinking text."
         )
 
+    def _build_teacher_draft_context(self, feature):
+        if not self.teacher_draft_field:
+            return ""
+        if self.teacher_draft_field not in feature:
+            available = ", ".join(sorted(feature.keys()))
+            raise KeyError(
+                "teacher_draft_field is set but the field is missing from this sample. "
+                f"Expected '{self.teacher_draft_field}'. Available fields: {available}"
+            )
+        draft_response = str(feature[self.teacher_draft_field])
+        return (
+            "Private SFT baseline answer (teacher-only; student cannot see this):\n"
+            f"{draft_response}\n\n"
+            f"{self.teacher_draft_guidance_text}\n"
+        )
+
     def _build_prompts(self, feature):
         if self.problem_field in feature and self.solution_field in feature:
             problem = feature[self.problem_field]
@@ -235,6 +265,7 @@ class SelfDistillationDataCollator:
             # Re-templating keeps student_thinking/teacher_thinking behavior consistent.
             source_messages = self._parse_chatml_messages(source_prompt)
             original_prompt = self._extract_chatml_user_content(source_prompt)
+            teacher_draft_context = self._build_teacher_draft_context(feature)
             if self.corrector_mode:
                 if self.draft_field not in feature:
                     available = ", ".join(sorted(feature.keys()))
@@ -289,12 +320,14 @@ class SelfDistillationDataCollator:
             if self.teacher_guidance_mode == "quality":
                 reasoning_user_message = (
                     f"{original_prompt}\n\n"
+                    f"{teacher_draft_context}"
                     f"Private reference answer (use for meaning and coverage, not exact wording):\n"
                     f"{reference_response}\n"
                     f"{self.generic_quality_transition_prompt}"
                 )
                 teacher_user_message = (
                     f"{original_prompt}\n\n"
+                    f"{teacher_draft_context}"
                     f"Private reference answer (use for meaning and coverage, not exact wording):\n"
                     f"{reference_response}\n"
                     f"{self.generic_quality_transition_prompt}"
@@ -303,12 +336,14 @@ class SelfDistillationDataCollator:
             else:
                 reasoning_user_message = (
                     f"{original_prompt}\n\n"
+                    f"{teacher_draft_context}"
                     f"Exact target answer (the response ends immediately after this text):\n"
                     f"{reference_response}\n"
                     f"{self.generic_reason_first_prompt}"
                 )
                 teacher_user_message = (
                     f"{original_prompt}\n\n"
+                    f"{teacher_draft_context}"
                     f"Exact target answer (the response ends immediately after this text):\n"
                     f"{reference_response}\n"
                     f"{self.generic_exact_transition_prompt}"

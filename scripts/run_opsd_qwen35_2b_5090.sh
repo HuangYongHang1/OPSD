@@ -33,6 +33,7 @@ REAPPLY_CHAT_TEMPLATE_TO_INPUT="${REAPPLY_CHAT_TEMPLATE_TO_INPUT:-True}"
 TEACHER_GUIDANCE_MODE="${TEACHER_GUIDANCE_MODE:-quality}"
 CORRECTOR_MODE="${CORRECTOR_MODE:-False}"
 DRAFT_FIELD="${DRAFT_FIELD:-sft_draft}"
+TEACHER_DRAFT_FIELD="${TEACHER_DRAFT_FIELD:-}"
 LORA_R="${LORA_R:-16}"
 LORA_ALPHA="${LORA_ALPHA:-32}"
 
@@ -74,6 +75,7 @@ echo "[INFO] Student rollout: max_new_tokens=$MAX_COMPLETION_LENGTH temperature=
 echo "[INFO] Loss weights: opsd=$OPSD_LOSS_WEIGHT sft=$SFT_LOSS_WEIGHT"
 echo "[INFO] Teacher guidance mode: $TEACHER_GUIDANCE_MODE"
 echo "[INFO] Corrector mode: $CORRECTOR_MODE draft_field=$DRAFT_FIELD"
+echo "[INFO] Teacher-only draft field: ${TEACHER_DRAFT_FIELD:-<disabled>}"
 echo "[INFO] LoRA: r=$LORA_R alpha=$LORA_ALPHA"
 
 EXTRA_TRAINING_ARGS=()
@@ -103,6 +105,7 @@ accelerate launch \
     --output_field "${OUTPUT_FIELD:-output}" \
     --draft_field "$DRAFT_FIELD" \
     --corrector_mode "$CORRECTOR_MODE" \
+    --teacher_draft_field "$TEACHER_DRAFT_FIELD" \
     --problem_field "${PROBLEM_FIELD:-problem}" \
     --solution_field "${SOLUTION_FIELD:-solution}" \
     --learning_rate "${LEARNING_RATE:-5e-6}" \

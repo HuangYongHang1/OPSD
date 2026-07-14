@@ -166,6 +166,13 @@ class CustomScriptArguments(ScriptArguments):
             "When enabled, each input/output sample must also contain draft_field."
         },
     )
+    teacher_draft_field: str = field(
+        default="",
+        metadata={
+            "help": "Optional SFT draft field shown only to the teacher as a private baseline. "
+            "The student still sees only input unless corrector_mode=True."
+        },
+    )
     teacher_guidance_mode: str = field(
         default="exact",
         metadata={
@@ -370,6 +377,7 @@ if __name__ == "__main__":
                 "teacher_guidance_mode": script_args.teacher_guidance_mode,
                 "corrector_mode": script_args.corrector_mode,
                 "draft_field": script_args.draft_field if script_args.corrector_mode else None,
+                "teacher_draft_field": script_args.teacher_draft_field or None,
             },
         )
 
@@ -471,6 +479,7 @@ if __name__ == "__main__":
         output_field=script_args.output_field,
         draft_field=script_args.draft_field,
         corrector_mode=script_args.corrector_mode,
+        teacher_draft_field=script_args.teacher_draft_field,
         opsd_loss_weight=script_args.opsd_loss_weight,
         sft_loss_weight=script_args.sft_loss_weight,
         teacher_guidance_mode=script_args.teacher_guidance_mode,
