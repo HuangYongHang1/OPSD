@@ -31,6 +31,8 @@ CLOSE_TEACHER_THINKING_BEFORE_SCORING="${CLOSE_TEACHER_THINKING_BEFORE_SCORING:-
 REASON_FIRST="${REASON_FIRST:-False}"
 REAPPLY_CHAT_TEMPLATE_TO_INPUT="${REAPPLY_CHAT_TEMPLATE_TO_INPUT:-True}"
 TEACHER_GUIDANCE_MODE="${TEACHER_GUIDANCE_MODE:-quality}"
+CORRECTOR_MODE="${CORRECTOR_MODE:-False}"
+DRAFT_FIELD="${DRAFT_FIELD:-sft_draft}"
 LORA_R="${LORA_R:-16}"
 LORA_ALPHA="${LORA_ALPHA:-32}"
 
@@ -71,6 +73,7 @@ echo "[INFO] Trainer report_to=$REPORT_TO"
 echo "[INFO] Student rollout: max_new_tokens=$MAX_COMPLETION_LENGTH temperature=$TEMPERATURE top_p=$TOP_P top_k=$TOP_K presence_penalty=$PRESENCE_PENALTY"
 echo "[INFO] Loss weights: opsd=$OPSD_LOSS_WEIGHT sft=$SFT_LOSS_WEIGHT"
 echo "[INFO] Teacher guidance mode: $TEACHER_GUIDANCE_MODE"
+echo "[INFO] Corrector mode: $CORRECTOR_MODE draft_field=$DRAFT_FIELD"
 echo "[INFO] LoRA: r=$LORA_R alpha=$LORA_ALPHA"
 
 EXTRA_TRAINING_ARGS=()
@@ -98,6 +101,8 @@ accelerate launch \
     --opsd_dataset_split "$OPSD_DATASET_SPLIT" \
     --input_field "${INPUT_FIELD:-input}" \
     --output_field "${OUTPUT_FIELD:-output}" \
+    --draft_field "$DRAFT_FIELD" \
+    --corrector_mode "$CORRECTOR_MODE" \
     --problem_field "${PROBLEM_FIELD:-problem}" \
     --solution_field "${SOLUTION_FIELD:-solution}" \
     --learning_rate "${LEARNING_RATE:-5e-6}" \

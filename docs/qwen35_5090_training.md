@@ -132,6 +132,8 @@ unset WANDB_MODE
 | `OPSD_LOSS_WEIGHT` | `1.0` | OPSD 蒸馏损失权重。它让 student 在自己的 rollout 轨迹上贴近拥有参考答案上下文的 teacher 分布。 |
 | `SFT_LOSS_WEIGHT` | `1.0` | SFT 交叉熵损失权重。它直接训练 `input -> output + EOS`，用于锚定短摘要格式和停止位置。设为 `0` 可回到纯 OPSD。 |
 | `TEACHER_GUIDANCE_MODE` | `quality` | teacher 使用参考答案的方式。`exact` 要求贴近标准答案原文；`quality` 把标准答案当私有语义 baseline，但只允许在强事实和格式约束内做更自然、更可读的改写。 |
+| `CORRECTOR_MODE` | `False` | 是否启用 SFT 初稿纠错模式。开启后 student 看到 `input + sft_draft`，目标仍是 `output`，用于把 OPSD 训练成 SFT 摘要的轻修正器。 |
+| `DRAFT_FIELD` | `sft_draft` | corrector 模式下读取 SFT 初稿的字段名。 |
 | `TOP_K_LOSS` | `256` | 蒸馏损失只在 teacher top-k token 上计算，降低显存和计算压力。 |
 | `JSD_TOKEN_CLIP` | `1e-6` | 每个 token 的 JSD clipping，用于稳定训练。 |
 
@@ -179,6 +181,46 @@ teacher thinking 可以后续作为消融实验再打开；如果打开，应保
 - 摘要完成后应立即输出 EOS 停止。
 
 如果要复现实验中的严格 target-answer 版本，可以设置 `TEACHER_GUIDANCE_MODE=exact`。
+
+### SFT 初稿纠错模式
+
+如果要把 OPSD 训练成 SFT 摘要的“轻修正器”，开启：
+
+```bash
+CORRECTOR_MODE=True
+DRAFT_FIELD=sft_draft
+```
+
+此时数据集每行需要包含：
+
+```json
+{
+  "input": "<|im_start|>user\nPlease briefly summarize ...<|im_end|><|im_start|>assistant\n",
+  "sft_draft": "SFT model's current summary draft.",
+  "output": "Reference or better corrected summary."
+}
+```
+
+训练时 student 看到的是：
+
+```text
+Original summarization request:
+{input 中的用户请求}
+
+Current SFT draft summary:
+{sft_draft}
+
+Revise the draft only if necessary...
+```
+
+teacher 仍然私有看到 `output`，但 prompt 会要求它把模型当成 corrector，而不是第二个摘要生成器：如果 SFT 初稿已经准确、简洁、自然，就尽量保持；只修事实、逻辑、指代、遗漏、冗余或明显别扭的措辞。
+
+这个模式适合两阶段推理：
+
+1. SFT adapter：`input -> sft_draft`
+2. OPSD corrector adapter：`input + sft_draft -> corrected_summary`
+
+如果最终想把权重合成单个一次性摘要模型，不建议使用 corrector 模式，因为推理时没有 `sft_draft` 可以输入。
 
 如果你的数据列名不同，可以这样覆盖：
 

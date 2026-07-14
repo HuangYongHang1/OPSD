@@ -155,6 +155,17 @@ class CustomScriptArguments(ScriptArguments):
         default="output",
         metadata={"help": "Reference response field for SFT-style datasets."},
     )
+    draft_field: str = field(
+        default="sft_draft",
+        metadata={"help": "Draft summary field for corrector-style datasets."},
+    )
+    corrector_mode: bool = field(
+        default=False,
+        metadata={
+            "help": "Train OPSD/SFT as a summary corrector using input + draft_field -> output. "
+            "When enabled, each input/output sample must also contain draft_field."
+        },
+    )
     teacher_guidance_mode: str = field(
         default="exact",
         metadata={
@@ -357,6 +368,8 @@ if __name__ == "__main__":
                 "opsd_loss_weight": script_args.opsd_loss_weight,
                 "sft_loss_weight": script_args.sft_loss_weight,
                 "teacher_guidance_mode": script_args.teacher_guidance_mode,
+                "corrector_mode": script_args.corrector_mode,
+                "draft_field": script_args.draft_field if script_args.corrector_mode else None,
             },
         )
 
@@ -456,6 +469,8 @@ if __name__ == "__main__":
         solution_field=script_args.solution_field,
         input_field=script_args.input_field,
         output_field=script_args.output_field,
+        draft_field=script_args.draft_field,
+        corrector_mode=script_args.corrector_mode,
         opsd_loss_weight=script_args.opsd_loss_weight,
         sft_loss_weight=script_args.sft_loss_weight,
         teacher_guidance_mode=script_args.teacher_guidance_mode,

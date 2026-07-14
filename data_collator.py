@@ -13,6 +13,7 @@ class SelfDistillationDataCollator:
     Supported dataset schemas:
     - Math OPSD: {"problem": "...", "solution": "..."}
     - SFT-style: {"input": "<chat prompt ending in assistant prefix>", "output": "..."}
+    - Corrector-style: {"input": "...", "sft_draft": "...", "output": "..."}
 
     To enable batch-level operations (like original GKD), we pad prompts to the same length
     within each batch, and track the actual (unpadded) prompt lengths for loss masking.
@@ -31,6 +32,8 @@ class SelfDistillationDataCollator:
         solution_field="solution",
         input_field="input",
         output_field="output",
+        draft_field="sft_draft",
+        corrector_mode=False,
         teacher_guidance_mode="exact",
     ):
         self.tokenizer = tokenizer
@@ -44,6 +47,8 @@ class SelfDistillationDataCollator:
         self.solution_field = solution_field
         self.input_field = input_field
         self.output_field = output_field
+        self.draft_field = draft_field
+        self.corrector_mode = corrector_mode
         self.teacher_guidance_mode = teacher_guidance_mode.lower()
         if self.teacher_guidance_mode not in {"exact", "quality"}:
             raise ValueError("teacher_guidance_mode must be either 'exact' or 'quality'.")
@@ -99,6 +104,18 @@ class SelfDistillationDataCollator:
             "meta-commentary, and no thinking text. "
             "After a complete summary, emit the end-of-message token and stop:\n"
         )
+        self.generic_corrector_quality_transition_prompt = (
+            "\n\nUse the private reference answer to judge the current SFT draft, but do not behave like a "
+            "second independent summarizer. The next assistant response should be a corrected final summary. "
+            "Prefer preserving the draft when it is already faithful, concise, and natural. Reward changes only "
+            "when they fix factual errors, logical errors, wrong references, pronoun/subject confusion, major "
+            "omissions, excessive verbosity, or clearly awkward wording. Do not rewrite just to sound different. "
+            "Do not add details that are not supported by the original text or private reference. Keep the same "
+            "short-summary answer type and stay close to the draft's length unless a correction requires otherwise. "
+            "Return only the final corrected summary: no labels, no 'Summary:', no explanation, no clarification "
+            "question, no phrase analysis, no meta-commentary, and no thinking text. "
+            "After a complete corrected summary, emit the end-of-message token and stop:\n"
+        )
 
         # Set padding side explicitly for consistency
         print(f"[DataCollator] Original padding_side: {self.tokenizer.padding_side}")
@@ -111,9 +128,14 @@ class SelfDistillationDataCollator:
         )
         print(f"[DataCollator] Reapply chat template to input: {self.reapply_chat_template_to_input}")
         print(f"[DataCollator] Teacher guidance mode: {self.teacher_guidance_mode}")
+        print(f"[DataCollator] Corrector mode: {self.corrector_mode}")
+        if self.corrector_mode:
+            print(f"[DataCollator] Draft field: {self.draft_field}")
         print(
             "[DataCollator] Supported schemas: "
-            f"{self.problem_field}/{self.solution_field} and {self.input_field}/{self.output_field}"
+            f"{self.problem_field}/{self.solution_field}, "
+            f"{self.input_field}/{self.output_field}, and "
+            f"{self.input_field}/{self.draft_field}/{self.output_field} when corrector_mode=True"
         )
 
     def _maybe_close_teacher_thinking(self, teacher_prompt):
@@ -153,6 +175,19 @@ class SelfDistillationDataCollator:
             messages.append({"role": role, "content": content.strip()})
 
         return messages or [{"role": "user", "content": prompt.strip()}]
+
+    def _build_corrector_user_message(self, original_prompt, draft_response):
+        return (
+            "Original summarization request:\n"
+            f"{original_prompt}\n\n"
+            "Current SFT draft summary:\n"
+            f"{draft_response}\n\n"
+            "Revise the draft only if necessary. Fix factual, logical, reference, pronoun, or major omission "
+            "errors; remove unsupported details; and make minor wording improvements only when they clearly "
+            "improve readability without changing meaning. If the draft is already faithful, concise, and "
+            "natural, keep it essentially unchanged. Return only the final corrected summary, with no labels, "
+            "explanation, clarification question, or thinking text."
+        )
 
     def _build_prompts(self, feature):
         if self.problem_field in feature and self.solution_field in feature:
@@ -200,6 +235,47 @@ class SelfDistillationDataCollator:
             # Re-templating keeps student_thinking/teacher_thinking behavior consistent.
             source_messages = self._parse_chatml_messages(source_prompt)
             original_prompt = self._extract_chatml_user_content(source_prompt)
+            if self.corrector_mode:
+                if self.draft_field not in feature:
+                    available = ", ".join(sorted(feature.keys()))
+                    raise KeyError(
+                        "corrector_mode=True requires a draft summary field. "
+                        f"Expected '{self.draft_field}'. Available fields: {available}"
+                    )
+                draft_response = str(feature[self.draft_field])
+                corrector_user_message = self._build_corrector_user_message(original_prompt, draft_response)
+                student_prompt = self.tokenizer.apply_chat_template(
+                    [{"role": "user", "content": corrector_user_message}],
+                    tokenize=False,
+                    add_generation_prompt=True,
+                    enable_thinking=self.student_thinking,
+                )
+
+                if self.teacher_guidance_mode == "quality":
+                    reasoning_user_message = (
+                        f"{corrector_user_message}\n\n"
+                        f"Private reference answer (use to decide whether the SFT draft needs correction):\n"
+                        f"{reference_response}\n"
+                        f"{self.generic_corrector_quality_transition_prompt}"
+                    )
+                    teacher_user_message = reasoning_user_message
+                    transition_text = f"\n{self.generic_corrector_quality_transition_prompt}"
+                else:
+                    reasoning_user_message = (
+                        f"{corrector_user_message}\n\n"
+                        f"Exact target answer (the corrected response ends immediately after this text):\n"
+                        f"{reference_response}\n"
+                        f"{self.generic_reason_first_prompt}"
+                    )
+                    teacher_user_message = (
+                        f"{corrector_user_message}\n\n"
+                        f"Exact target answer (the corrected response ends immediately after this text):\n"
+                        f"{reference_response}\n"
+                        f"{self.generic_exact_transition_prompt}"
+                    )
+                    transition_text = f"\n{self.generic_exact_transition_prompt}"
+                return student_prompt, reasoning_user_message, teacher_user_message, transition_text, reference_response
+
             if "<|im_start|>" in source_prompt and not self.reapply_chat_template_to_input:
                 student_prompt = source_prompt
             else:
